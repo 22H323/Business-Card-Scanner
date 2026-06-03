@@ -1,0 +1,49 @@
+// CardSync AI — local PostgreSQL database (works without internet)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ContactSyncStatus {
+  local_only
+  pending_firebase
+  synced_firebase
+  synced_zoho
+  failed
+}
+
+model Contact {
+  id               String            @id @default(uuid())
+  fullName         String
+  firstName        String            @default("")
+  lastName         String            @default("")
+  designation      String            @default("")
+  company          String            @default("")
+  phone            String            @default("")
+  secondaryPhone   String            @default("")
+  email            String            @default("")
+  secondaryEmail   String            @default("")
+  website          String            @default("")
+  secondaryWebsite String            @default("")
+  address          String            @default("")
+  secondaryAddress String            @default("")
+  socialLinks      String            @default("")
+  gstNumber        String            @default("")
+  notes            String            @default("")
+  cardImageBase64  String?           @db.Text
+  syncStatus       ContactSyncStatus @default(local_only)
+  firebaseId       String?
+  zohoLeadId       String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([syncStatus])
+  @@index([email])
+  @@index([phone])
+  @@map("contacts")
+}

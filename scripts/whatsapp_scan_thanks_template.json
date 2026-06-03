@@ -1,0 +1,14 @@
+{
+  "name": "cardsync_scan_thanks",
+  "category": "UTILITY",
+  "language": "en",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hi {{1}}, thank you for sharing your business card with us. We have saved your details in CardSync.",
+      "example": {
+        "body_text": [["Sandeep"]]
+      }
+    }
+  ]
+}

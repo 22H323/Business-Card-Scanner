@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+python-multipart
+pytesseract
+opencv-python-headless
+Pillow
+numpy
+aiofiles
+python-dotenv
+requests
+httpx
+psycopg2-binary
+pymongo
+firebase-admin
