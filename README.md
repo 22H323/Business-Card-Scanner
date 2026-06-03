@@ -72,16 +72,16 @@ This app uses **TanStack Start SSR**. Netlify needs the official plugin (already
 2. Build settings (also in `netlify.toml`):
    - **Build command:** `npm run build`
    - **Publish directory:** `dist/client`
-3. **API URL** (already in `netlify.toml`): `VITE_API_URL=https://business-card-scanner-1-t2ys.onrender.com`
+3. **API URL** (already in `netlify.toml`): `VITE_API_URL=https://business-card-scanner-2.onrender.com`
 4. On **Render** (Python API), set `FRONTEND_URL=https://businesscardscannertesting.netlify.app` (or redeploy after pulling latest `main.py` CORS defaults), then redeploy the API.
 5. Redeploy Netlify after pushing. Test: open the site → **Status** or `/health` via the app should reach Render.
 
 | Service | URL |
 |---------|-----|
 | Frontend (Netlify) | https://businesscardscannertesting.netlify.app |
-| API (Render) | https://business-card-scanner-1-t2ys.onrender.com |
-| API health | https://business-card-scanner-1-t2ys.onrender.com/health |
-| API docs | https://business-card-scanner-1-t2ys.onrender.com/docs |
+| API (Render) | https://business-card-scanner-2.onrender.com |
+| API health | https://business-card-scanner-2.onrender.com/health |
+| API docs | https://business-card-scanner-2.onrender.com/docs |
 
 ### Postman (production API testing)
 

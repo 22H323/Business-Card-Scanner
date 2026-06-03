@@ -8,7 +8,7 @@
 
 [build.environment]
   NODE_VERSION = "22"
-  VITE_API_URL = "https://business-card-scanner-1-t2ys.onrender.com"
+  VITE_API_URL = "https://business-card-scanner-2.onrender.com"
 
 [dev]
   command = "npm run dev"
