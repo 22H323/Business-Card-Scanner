@@ -1,8 +1,40 @@
 """Load .env from project root into os.environ (does not override existing vars)."""
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _ENV_LOADED = False
+
+# Windows Notepad sometimes saves smart quotes/dashes as cp1252 (e.g. byte 0x97).
+_ENV_ENCODINGS = ("utf-8-sig", "utf-8", "cp1252")
+
+
+def _load_dotenv_file(path: Path, *, override: bool) -> None:
+    from dotenv import load_dotenv
+
+    last_error: Exception | None = None
+    for encoding in _ENV_ENCODINGS:
+        try:
+            load_dotenv(path, override=override, encoding=encoding)
+            return
+        except UnicodeDecodeError as exc:
+            last_error = exc
+    if last_error:
+        raise last_error
+
+
+def _dotenv_values_file(path: Path) -> dict:
+    from dotenv import dotenv_values
+
+    last_error: Exception | None = None
+    for encoding in _ENV_ENCODINGS:
+        try:
+            return dotenv_values(path, encoding=encoding)
+        except UnicodeDecodeError as exc:
+            last_error = exc
+    if last_error:
+        raise last_error
+    return {}
 
 
 def load_env() -> None:
@@ -11,21 +43,19 @@ def load_env() -> None:
         return
 
     try:
-        from dotenv import load_dotenv
+        from dotenv import load_dotenv  # noqa: F401 — availability check
     except ImportError:
         _ENV_LOADED = True
         return
 
     env_file = PROJECT_ROOT / ".env"
     if env_file.is_file():
-        load_dotenv(env_file, override=False)
+        _load_dotenv_file(env_file, override=False)
 
-    # Zoho OAuth secrets often live here; override empty placeholders from root .env
     backend_env = PROJECT_ROOT / "backend" / ".env"
     if backend_env.is_file():
-        load_dotenv(backend_env, override=True)
+        _load_dotenv_file(backend_env, override=True)
 
-    # Root .env always wins for WhatsApp so backend/.env cannot override tokens/phone id.
     whatsapp_keys = (
         "WHATSAPP_ACCESS_TOKEN",
         "WHATSAPP_PHONE_NUMBER_ID",
@@ -37,14 +67,12 @@ def load_env() -> None:
     )
     if env_file.is_file():
         try:
-            from dotenv import dotenv_values
-
-            root_values = dotenv_values(env_file)
+            root_values = _dotenv_values_file(env_file)
             for key in whatsapp_keys:
                 value = root_values.get(key)
                 if value:
                     os.environ[key] = value.strip().strip('"').strip("'")
         except Exception:
-            load_dotenv(env_file, override=True)
+            _load_dotenv_file(env_file, override=True)
 
     _ENV_LOADED = True

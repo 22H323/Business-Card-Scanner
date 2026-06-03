@@ -41,8 +41,10 @@ import {
   shouldUseOfflineQueue,
   storageLabel,
   syncAllPendingToZohoStorage,
+  syncAllQueueItemsToZoho,
   syncContactToZohoStorage,
   syncQueueItemToLocalDb,
+  syncQueueItemToZoho,
   type StoredContact,
 } from "@/lib/contactStorage";
 import { toast } from "sonner";
@@ -136,12 +138,9 @@ function QueuePage() {
     window.dispatchEvent(new CustomEvent("cs-queue-updated"));
   };
 
-  const syncOneQueueItem = async (item: QueueItem): Promise<boolean> => {
-    const storageUp = await checkStorageHealth();
-    if (!storageUp) {
-      throw new Error(`Cannot save to ${storageLabel()}. Run npm run server and check .env`);
-    }
+  const indexedDbMode = isIndexedDbStorage();
 
+  const syncOneQueueItem = async (item: QueueItem): Promise<boolean> => {
     await updateQueueItem({
       ...item,
       status: "retrying",
@@ -149,11 +148,22 @@ function QueuePage() {
     });
 
     try {
-      await syncQueueItemToLocalDb(item);
-      await removeQueueItem(item.id);
+      if (indexedDbMode) {
+        if (!navigator.onLine) {
+          throw new Error("No internet. Connect to sync to Zoho CRM.");
+        }
+        await syncQueueItemToZoho(item);
+      } else {
+        const storageUp = await checkStorageHealth();
+        if (!storageUp) {
+          throw new Error(`Cannot save to ${storageLabel()}. Run npm run server and check .env`);
+        }
+        await syncQueueItemToLocalDb(item);
+        await removeQueueItem(item.id);
+      }
       return true;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Local DB error";
+      const message = err instanceof Error ? err.message : "Sync error";
       const nextRetryCount = item.retry_count + 1;
       await updateQueueItem({
         ...item,
@@ -168,6 +178,36 @@ function QueuePage() {
 
   const syncQueueToLocalDb = async () => {
     if (isSyncingLocal) return;
+
+    if (indexedDbMode) {
+      if (!navigator.onLine) {
+        toast.error("No internet. Connect to sync to Zoho CRM.");
+        return;
+      }
+      const items = await getQueueItems();
+      const unsynced = items.filter(
+        (i) => i.status === "pending" || i.status === "retrying",
+      );
+      if (unsynced.length === 0) {
+        toast.info("Browser queue is empty — nothing waiting for Zoho.");
+        return;
+      }
+      setIsSyncingLocal(true);
+      toast.info(`Syncing ${unsynced.length} contact(s) to Zoho CRM...`);
+      try {
+        const { synced, total } = await syncAllQueueItemsToZoho();
+        if (synced > 0) {
+          toast.success(`Synced ${synced} of ${total} to Zoho CRM.`);
+        } else {
+          toast.error("Could not sync any contacts. Check Failed section.");
+        }
+      } finally {
+        await loadData({ silent: true });
+        notifyUpdated();
+        setIsSyncingLocal(false);
+      }
+      return;
+    }
 
     const storageUp = await checkStorageHealth();
     if (!storageUp) {
@@ -245,7 +285,11 @@ function QueuePage() {
     setSyncingQueueId(item.id);
     try {
       await syncOneQueueItem(item);
-      toast.success(`Saved to local DB: ${queueItemName(item)}`);
+      toast.success(
+        indexedDbMode
+          ? `Synced to Zoho: ${queueItemName(item)}`
+          : `Saved to local DB: ${queueItemName(item)}`,
+      );
       await loadData({ silent: true });
       notifyUpdated();
     } catch (err: unknown) {
@@ -316,12 +360,37 @@ function QueuePage() {
     };
   }, [queueItems, localDbContacts]);
 
-  const stages = [
-    { label: "Browser queue", count: stats.queuePending + stats.queueFailed, icon: Inbox, tone: "warning" as const },
-    { label: "Local DB", count: stats.inLocalDb, icon: Database, tone: "primary" as const },
-    { label: "Pending Zoho", count: stats.pendingZoho, icon: Send, tone: "warning" as const },
-    { label: "Synced Zoho", count: stats.syncedZoho, icon: CheckCircle2, tone: "success" as const },
-  ];
+  const stages = indexedDbMode
+    ? [
+        {
+          label: "Waiting in queue",
+          count: stats.queuePending + stats.queueFailed,
+          icon: Inbox,
+          tone: "warning" as const,
+        },
+        {
+          label: "Synced to Zoho",
+          count: stats.syncedZoho,
+          icon: CheckCircle2,
+          tone: "success" as const,
+        },
+      ]
+    : [
+        {
+          label: "Browser queue",
+          count: stats.queuePending + stats.queueFailed,
+          icon: Inbox,
+          tone: "warning" as const,
+        },
+        { label: "Local DB", count: stats.inLocalDb, icon: Database, tone: "primary" as const },
+        { label: "Pending Zoho", count: stats.pendingZoho, icon: Send, tone: "warning" as const },
+        {
+          label: "Synced Zoho",
+          count: stats.syncedZoho,
+          icon: CheckCircle2,
+          tone: "success" as const,
+        },
+      ];
 
   const growthData = useMemo(() => {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -353,34 +422,16 @@ function QueuePage() {
   );
 
   const isBusy = isSyncingLocal || isSyncingZoho;
-  const indexedDbMode = isIndexedDbStorage();
-
-  if (indexedDbMode) {
-    return (
-      <div className="page-bottom-safe lg:pb-0">
-        <PageShell
-          title="Queue Center"
-          description="IndexedDB mode — contacts are stored in your browser"
-        >
-          <Card className="rounded-2xl border-border/60 p-6 shadow-soft">
-            <p className="text-sm text-muted-foreground">
-              You have <code className="rounded bg-muted px-1.5 py-0.5">VITE_CONTACT_STORAGE=indexeddb</code>.
-              Contacts save directly to IndexedDB — no server database queue is used.
-            </p>
-            <p className="mt-3 text-sm text-muted-foreground">
-              Use <strong>Contacts</strong> to view saved cards and sync them to Zoho when online.
-            </p>
-          </Card>
-        </PageShell>
-      </div>
-    );
-  }
 
   return (
     <div className="page-bottom-safe lg:pb-0">
       <PageShell
         title="Queue Center"
-        description="Browser queue → local PostgreSQL → Zoho CRM"
+        description={
+          indexedDbMode
+            ? "Offline saves → browser queue → Zoho CRM when online"
+            : "Browser queue → local PostgreSQL → Zoho CRM"
+        }
         actions={
           <>
             <Button
@@ -390,10 +441,12 @@ function QueuePage() {
             >
               {isSyncingLocal ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : indexedDbMode ? (
+                <Send className="mr-2 h-4 w-4" />
               ) : (
                 <Database className="mr-2 h-4 w-4" />
               )}
-              Sync to Local DB
+              {indexedDbMode ? "Sync queue to Zoho" : "Sync to Local DB"}
               {stats.queuePending + stats.queueFailed > 0 && (
                 <span className="ml-1.5 rounded-full bg-primary-foreground/20 px-1.5 text-[10px]">
                   {stats.queuePending + stats.queueFailed}
@@ -403,7 +456,9 @@ function QueuePage() {
             <Button
               variant="outline"
               onClick={() => void syncPendingToZoho()}
-              disabled={isBusy || isLoading || stats.pendingZoho === 0}
+              disabled={
+                isBusy || isLoading || stats.pendingZoho === 0 || !navigator.onLine
+              }
               className="h-10 shrink-0 rounded-xl"
             >
               {isSyncingZoho ? (
@@ -430,7 +485,13 @@ function QueuePage() {
           </>
         }
       >
-        {localDbOnline === false && (
+        {indexedDbMode && !navigator.onLine && (
+          <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            You are offline. Cards in the queue will upload to Zoho CRM automatically when
+            internet returns.
+          </div>
+        )}
+        {!indexedDbMode && localDbOnline === false && (
           <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
             Local PostgreSQL is offline. Run{" "}
             <code className="rounded bg-black/30 px-1.5 py-0.5">npm run server</code>{" "}
@@ -482,7 +543,9 @@ function QueuePage() {
                 <div>
                   <div className="text-sm font-medium">Sync pipeline</div>
                   <div className="text-xs text-muted-foreground">
-                    Queue → PostgreSQL → Zoho CRM
+                    {indexedDbMode
+                      ? "Queue → Zoho CRM (auto when online)"
+                      : "Queue → PostgreSQL → Zoho CRM"}
                   </div>
                 </div>
                 <Activity className="h-4 w-4 text-primary" />
@@ -531,7 +594,9 @@ function QueuePage() {
                   <div>
                     <div className="text-sm font-medium">Browser queue — pending</div>
                     <div className="text-xs text-muted-foreground">
-                      Saved on this device when local DB was unavailable
+                      {indexedDbMode
+                        ? "Saved offline or when Online mode is off — waiting for Zoho"
+                        : "Saved on this device when local DB was unavailable"}
                     </div>
                   </div>
                   <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
@@ -573,6 +638,11 @@ function QueuePage() {
                           >
                             {syncingQueueId === item.id ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : indexedDbMode ? (
+                              <>
+                                <Send className="mr-1.5 h-3 w-3" />
+                                Zoho
+                              </>
                             ) : (
                               <>
                                 <Database className="mr-1.5 h-3 w-3" />
@@ -661,7 +731,9 @@ function QueuePage() {
               <Card className="rounded-2xl border-border/60 p-4 shadow-soft sm:p-5">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium">Local PostgreSQL contacts</div>
+                    <div className="text-sm font-medium">
+                      {indexedDbMode ? "Saved contacts (browser)" : "Local PostgreSQL contacts"}
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       Ready to sync to Zoho when online
                     </div>
@@ -721,7 +793,7 @@ function QueuePage() {
                 </div>
               </Card>
 
-              {localDbContacts.length > 0 && (
+              {!indexedDbMode && localDbContacts.length > 0 && (
                 <Card className="rounded-2xl border-border/60 p-4 shadow-soft sm:p-5">
                   <div className="text-sm font-medium">Contact growth (local DB)</div>
                   <div className="text-xs text-muted-foreground">Cumulative saves this year</div>

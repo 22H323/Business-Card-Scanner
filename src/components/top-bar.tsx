@@ -89,7 +89,12 @@ export function TopBar() {
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border/60 bg-background/70 px-3 backdrop-blur-xl sm:h-16 sm:gap-3 sm:px-4 md:px-6">
-      <SidebarTrigger className="-ml-1 md:hidden rounded-lg" />
+      <SidebarTrigger
+        icon="menu"
+        className="-ml-1 h-9 w-9 rounded-xl border border-border/60 bg-card/60 md:hidden"
+        aria-label="Open menu"
+        title="Open menu"
+      />
 
       <div className="relative hidden w-full max-w-sm flex-1 md:block">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

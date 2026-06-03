@@ -304,11 +304,11 @@ function ScanPage() {
       actions={
         connectionMode !== "offline" ? (
           <span className="inline-flex items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3 py-1.5 text-[11px] font-medium text-success">
-            <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" /> Online · local DB + Zoho sync
+            <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" /> Online · browser queue syncs to Zoho
           </span>
         ) : (
           <span className="inline-flex items-center gap-2 rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-[11px] font-medium text-warning-foreground dark:border-warning/40 dark:bg-warning/20 dark:text-warning-foreground">
-            <WifiOff className="h-3 w-3" /> Offline mode · saves to Local DB
+            <WifiOff className="h-3 w-3" /> Offline · local scan + IndexedDB queue → Zoho
           </span>
         )
       }

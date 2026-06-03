@@ -7,6 +7,11 @@ import netlify from "@netlify/vite-plugin-tanstack-start";
 
 const apiTarget = process.env.VITE_API_URL || "http://127.0.0.1:5000";
 
+/** Netlify functions-serve breaks SSR deps (e.g. recharts → @reduxjs/toolkit) during `vite dev`. */
+const isViteDev = process.argv.includes("dev");
+const isLocalProdBuild = process.argv.some((arg) => arg.includes("development"));
+const enableNetlifyPlugin = !isViteDev && !isLocalProdBuild;
+
 export default defineConfig({
   server: {
     proxy: {
@@ -18,13 +23,16 @@ export default defineConfig({
       "/api": { target: apiTarget, changeOrigin: true },
     },
   },
+  ssr: {
+    noExternal: ["recharts", "@reduxjs/toolkit", "react-redux"],
+  },
   plugins: [
     tsConfigPaths(),
     tailwindcss(),
     tanstackStart({
       server: { entry: "server" },
     }),
-    netlify(),
+    ...(enableNetlifyPlugin ? [netlify()] : []),
     react(),
   ],
 });

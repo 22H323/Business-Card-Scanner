@@ -140,6 +140,8 @@ def health_check():
     except Exception as exc:
         tesseract_error = str(exc)
 
+    from services.email_service import GMAIL_USER, is_gmail_configured
+
     payload = {
         "ok": True,
         "service": "cardsync-backend",
@@ -150,6 +152,12 @@ def health_check():
             "error": tesseract_error,
         },
         "zoho": {"connected": zoho_connected},
+        "email": {
+            "configured": is_gmail_configured(),
+            "smtp_host": "smtp.gmail.com",
+            "smtp_port": 587,
+            "from": GMAIL_USER or None,
+        },
     }
     if zoho_error:
         payload["zoho"]["error"] = zoho_error

@@ -268,3 +268,45 @@ export async function syncAllLocalPendingToZoho(): Promise<{
 export function isLocalContactPendingZoho(contact: LocalContact): boolean {
   return contact.syncStatus !== "synced_zoho" && !contact.zohoLeadId;
 }
+
+export type ThankYouOutreachResult = {
+  email_sent?: boolean;
+  email_error?: string | null;
+  email_to?: string | null;
+  email_extracted?: string | null;
+  whatsapp_sent?: boolean;
+  whatsapp_error?: string | null;
+};
+
+/** Send thank-you email/WhatsApp using Review form values (primary selected email). */
+export async function sendThankYouOutreach(
+  payload: LeadPayload,
+  options?: {
+    connectionMode?: "online" | "offline";
+    skipWhatsApp?: boolean;
+    skipEmail?: boolean;
+  },
+): Promise<ThankYouOutreachResult> {
+  const response = await fetch(`${API}/api/outreach/thank-you`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(
+      payloadToLocalBody(payload, undefined, {
+        connectionMode: options?.connectionMode ?? getConnectionMode(),
+        skipWhatsApp: Boolean(options?.skipWhatsApp),
+        skipEmail: Boolean(options?.skipEmail),
+      }),
+    ),
+  });
+
+  const data = (await response.json()) as ThankYouOutreachResult & {
+    detail?: string;
+    error?: string;
+  };
+  if (!response.ok) {
+    throw new Error(
+      data.detail || data.error || `Outreach failed (${response.status}). Is the backend running?`,
+    );
+  }
+  return data;
+}

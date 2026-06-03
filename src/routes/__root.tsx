@@ -17,8 +17,10 @@ import { useEffect, useState } from "react";
 import { getQueueItems, updateQueueItem, removeQueueItem } from "@/lib/indexeddb";
 import {
   checkStorageHealth,
+  shouldUseIndexedDbQueueSync,
   shouldUseOfflineQueue,
   storageLabel,
+  syncAllQueueItemsToZoho,
   syncQueueItemToLocalDb,
 } from "@/lib/contactStorage";
 import { toast } from "sonner";
@@ -143,15 +145,30 @@ function RootComponent() {
     }
 
     const processOfflineQueue = async () => {
-      if (!shouldUseOfflineQueue()) return;
-
-      const storageUp = await checkStorageHealth();
-      if (!storageUp) return;
+      if (!navigator.onLine) return;
 
       try {
         const queue = await getQueueItems();
-        const unsynced = queue.filter(item => item.status !== "synced");
+        const unsynced = queue.filter(
+          (item) => item.status === "pending" || item.status === "retrying",
+        );
         if (unsynced.length === 0) return;
+
+        if (shouldUseIndexedDbQueueSync()) {
+          toast.info(`Syncing ${unsynced.length} queued contact(s) to Zoho CRM...`);
+          const { synced, total } = await syncAllQueueItemsToZoho();
+          if (synced > 0) {
+            toast.success(`Synced ${synced} of ${total} contact(s) to Zoho CRM.`);
+          }
+          window.dispatchEvent(new CustomEvent("cs-contacts-updated"));
+          window.dispatchEvent(new CustomEvent("cs-queue-updated"));
+          return;
+        }
+
+        if (!shouldUseOfflineQueue()) return;
+
+        const storageUp = await checkStorageHealth();
+        if (!storageUp) return;
 
         toast.info(`Syncing ${unsynced.length} queued contact(s) to ${storageLabel()}...`);
 
@@ -160,7 +177,7 @@ function RootComponent() {
             const retryingItem = {
               ...item,
               status: "retrying" as const,
-              last_attempt: new Date().toISOString()
+              last_attempt: new Date().toISOString(),
             };
             await updateQueueItem(retryingItem);
 
@@ -168,18 +185,22 @@ function RootComponent() {
 
             await removeQueueItem(item.id);
             toast.success(`Saved to ${storageLabel()}: ${item.contact_data.name}`);
-          } catch (err: any) {
+          } catch (err: unknown) {
             console.error(`Storage sync failed for item ${item.id}:`, err);
+            const message =
+              err instanceof Error ? err.message : "Storage sync error";
             const nextRetryCount = item.retry_count + 1;
             const failedItem = {
               ...item,
-              status: nextRetryCount >= 5 ? "failed" as const : "pending" as const,
+              status: nextRetryCount >= 5 ? ("failed" as const) : ("pending" as const),
               retry_count: nextRetryCount,
               last_attempt: new Date().toISOString(),
-              error_message: err.message || "Storage sync error",
+              error_message: message,
             };
             await updateQueueItem(failedItem);
-            toast.error(`Sync failed for ${item.contact_data.name || "Unknown"}: ${err.message || "Storage sync error"}`);
+            toast.error(
+              `Sync failed for ${item.contact_data.name || "Unknown"}: ${message}`,
+            );
           }
         }
         window.dispatchEvent(new CustomEvent("cs-contacts-updated"));
@@ -200,11 +221,20 @@ function RootComponent() {
     // Run once on load if online
     processOfflineQueue();
 
+    const handleConnectionModeChange = (e: Event) => {
+      const mode = (e as CustomEvent<"online" | "offline">).detail;
+      if (mode === "online") {
+        processOfflineQueue();
+      }
+    };
+
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
+    window.addEventListener("cs-connection-mode-changed", handleConnectionModeChange);
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("cs-connection-mode-changed", handleConnectionModeChange);
     };
   }, [router]);
 
@@ -219,9 +249,9 @@ function RootComponent() {
             {!isOnline && (
               <div className="bg-warning/20 border-b border-warning/30 text-warning-foreground text-[11px] font-medium py-1.5 px-3 sm:px-4 text-center backdrop-blur-md flex items-center justify-center gap-2 dark:border-warning/40 dark:bg-warning/20 dark:text-warning-foreground">
                 <WifiOff className="h-3.5 w-3.5 shrink-0 text-warning" />
-                <span className="sm:hidden">Offline — saves to {storageLabel()}</span>
+                <span className="sm:hidden">Offline — saves to browser queue</span>
                 <span className="hidden sm:inline">
-                  No internet. Contacts save to {storageLabel()}. When online, use Sync to Zoho on Contacts.
+                  No internet. New cards save to the browser queue and auto-sync to Zoho CRM when you reconnect.
                 </span>
               </div>
             )}

@@ -21,6 +21,7 @@
     "wipe:all": "node scripts/wipe-all-data.mjs",
     "sync:zoho": "python scripts/sync-one-to-zoho.py",
     "build": "vite build",
+    "build:local": "vite build --mode development",
     "build:dev": "vite build --mode development",
     "preview": "npm run serve:dist",
     "serve:dist": "node scripts/serve-dist.mjs",

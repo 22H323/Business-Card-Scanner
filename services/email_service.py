@@ -36,7 +36,14 @@ def _normalize_env(value: str | None) -> str:
 
 
 GMAIL_USER = _normalize_env(os.getenv("GMAIL_USER"))
-GMAIL_APP_PASSWORD = _normalize_env(os.getenv("GMAIL_APP_PASSWORD"))
+
+
+def _normalize_gmail_app_password(value: str | None) -> str:
+    """Gmail App Passwords are 16 chars; remove spaces from .env (e.g. 'abcd efgh')."""
+    return _normalize_env(value).replace(" ", "")
+
+
+GMAIL_APP_PASSWORD = _normalize_gmail_app_password(os.getenv("GMAIL_APP_PASSWORD"))
 BUSINESS_COMPANY_NAME = _normalize_env(os.getenv("BUSINESS_COMPANY_NAME")) or "CardSync"
 BUSINESS_PHONE = _normalize_env(os.getenv("BUSINESS_PHONE")) or ""
 BUSINESS_WEBSITE = _normalize_env(os.getenv("BUSINESS_WEBSITE")) or ""

@@ -169,23 +169,33 @@ function SettingsPage() {
 
   const testMail = async () => {
     if (!isMailConnected) return;
+    const to = (profile.integrationEmail || profile.email || "").trim();
+    if (!to) {
+      toast.error("Set an integration or profile email in Settings first.");
+      return;
+    }
     setIsTestingMail(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/integrations/email/queue`, {
+      const res = await fetch(`${API_BASE_URL}/integrations/email/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contact_email: profile.integrationEmail || profile.email,
-          message: "Test message from CardSync AI settings",
+          contact_email: to,
+          test_override: to,
         }),
       });
-      if (res.ok) {
-        toast.success("Test email enqueued!");
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.success) {
+        toast.success(`Test email sent to ${to} via Gmail SMTP.`);
       } else {
-        toast.error("Failed to enqueue email.");
+        const detail =
+          typeof body.detail === "string"
+            ? body.detail
+            : body.result?.error || "SMTP send failed. Check GMAIL_USER and GMAIL_APP_PASSWORD in .env.";
+        toast.error(detail);
       }
     } catch {
-      toast.error("Network error while enqueueing email.");
+      toast.error("Cannot reach the API. Is npm run backend running on port 5000?");
     } finally {
       setIsTestingMail(false);
     }
@@ -195,6 +205,18 @@ function SettingsPage() {
     updateProfileField("notificationsEnabled", enabled);
     saveUserSettings({ notificationsEnabled: enabled });
     toast.success(enabled ? "Notifications enabled." : "Notifications disabled.");
+  };
+
+  const toggleEmailNotifications = (enabled: boolean) => {
+    updateProfileField("emailNotificationsEnabled", enabled);
+    saveUserSettings({ emailNotificationsEnabled: enabled });
+    toast.success(enabled ? "Email notifications enabled." : "Email notifications disabled.");
+  };
+
+  const toggleWhatsappNotifications = (enabled: boolean) => {
+    updateProfileField("whatsappNotificationsEnabled", enabled);
+    saveUserSettings({ whatsappNotificationsEnabled: enabled });
+    toast.success(enabled ? "WhatsApp notifications enabled." : "WhatsApp notifications disabled.");
   };
 
   return (
@@ -271,15 +293,47 @@ function SettingsPage() {
           <div className="flex items-center gap-2 text-sm font-medium">
             <Bell className="h-4 w-4 text-primary" /> Notifications
           </div>
-          <div className="mt-5 flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 p-4">
-            <div>
-              <div className="text-sm font-medium">Sync alerts</div>
-              <div className="text-[11px] text-muted-foreground">Show toasts when contacts sync or fail</div>
+          <div className="mt-5 space-y-3">
+            <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 p-4">
+              <div>
+                <div className="text-sm font-medium">Sync alerts</div>
+                <div className="text-[11px] text-muted-foreground">Show toasts when contacts sync or fail</div>
+              </div>
+              <Switch
+                checked={profile.notificationsEnabled}
+                onCheckedChange={toggleNotifications}
+              />
             </div>
-            <Switch
-              checked={profile.notificationsEnabled}
-              onCheckedChange={toggleNotifications}
-            />
+            <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <Mail className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="text-sm font-medium">Email notifications</div>
+                  <div className="text-[11px] text-muted-foreground">Follow-up emails after saving a contact</div>
+                </div>
+              </div>
+              <Switch
+                checked={profile.emailNotificationsEnabled}
+                onCheckedChange={toggleEmailNotifications}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/10 text-success">
+                  <MessageCircle className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="text-sm font-medium">WhatsApp notifications</div>
+                  <div className="text-[11px] text-muted-foreground">Thank-you messages via WhatsApp Business</div>
+                </div>
+              </div>
+              <Switch
+                checked={profile.whatsappNotificationsEnabled}
+                onCheckedChange={toggleWhatsappNotifications}
+              />
+            </div>
           </div>
         </Card>
 

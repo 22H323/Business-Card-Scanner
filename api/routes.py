@@ -33,6 +33,26 @@ def _is_online_mode(value: str | None) -> bool:
     return str(value or "online").strip().lower() != "offline"
 
 
+def _body_to_outreach_contact(body: "LocalContactBody") -> dict[str, Any]:
+    """Map saved contact body to the shape expected by outreach schedulers."""
+    emails = [e.strip() for e in (body.email, body.secondaryEmail) if e and str(e).strip()]
+    phones = [p.strip() for p in (body.phone, body.secondaryPhone) if p and str(p).strip()]
+    return {
+        "fullName": body.fullName,
+        "name": body.fullName,
+        "firstName": body.firstName,
+        "lastName": body.lastName,
+        "designation": body.designation,
+        "company": body.company,
+        "companyName": body.company,
+        "email": body.email,
+        "emailAddress": body.email,
+        "emails": emails,
+        "phone": body.phone,
+        "phones": phones,
+    }
+
+
 def _whatsapp_response(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "whatsapp_queued": result.get("sent", False),
@@ -126,19 +146,14 @@ async def scan_card(
                     "or enter contact details manually below."
                 )
 
-        whatsapp_result, email_result = await _schedule_outreach_for_contact(
-            structured_data,
-            online_mode=_is_online_mode(connection_mode),
-        )
-        
-        # 5. Return structured response
+        # Thank-you email/WhatsApp run after Save on Review (uses selected primary email).
         return {
             "success": True,
             "raw_text": raw_text,
             "contact": structured_data,
             "ocr_warning": ocr_warning,
-            **_whatsapp_response(whatsapp_result),
-            **_email_response(email_result),
+            **_whatsapp_response({"sent": False, "error": None}),
+            **_email_response({"sent": False, "error": None}),
         }
     except Exception as e:
         logger.error(f"Error processing file {card.filename}: {e}", exc_info=True)
@@ -375,29 +390,37 @@ async def create_contact_json(body: LocalContactBody):
     try:
         payload = body.model_dump()
         result = storage.create_contact(payload)
-        whatsapp_result, email_result = await _schedule_outreach_for_contact(
-            payload,
-            online_mode=_is_online_mode(body.connectionMode),
-            contact_id=result["id"],
-            skip_whatsapp=body.skipWhatsApp,
-            skip_email=body.skipEmail,
-        )
-        if _is_online_mode(body.connectionMode):
-            if body.skipWhatsApp:
-                storage.mark_whatsapp_sent(result["id"])
-            if body.skipEmail:
-                storage.mark_email_sent(result["id"])
         return {
             "success": True,
             "id": result["id"],
             "contact": storage.get_contact(result["id"]),
-            **_whatsapp_response(whatsapp_result),
-            **_email_response(email_result),
         }
     except ContactStorageError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except LocalDbError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/api/outreach/thank-you", tags=["Integrations"], summary="Send thank-you after review save")
+async def send_thank_you_outreach(body: "LocalContactBody"):
+    """Send WhatsApp/email to the contact fields the user confirmed on Review (primary email)."""
+    try:
+        contact = _body_to_outreach_contact(body)
+        whatsapp_result, email_result = await _schedule_outreach_for_contact(
+            contact,
+            online_mode=_is_online_mode(body.connectionMode),
+            contact_id=None,
+            skip_whatsapp=body.skipWhatsApp,
+            skip_email=body.skipEmail,
+        )
+        return {
+            "success": True,
+            **_whatsapp_response(whatsapp_result),
+            **_email_response(email_result),
+        }
+    except Exception as exc:
+        logger.error("Thank-you outreach failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.put("/api/contacts/{contact_id}", tags=["Contacts"])

@@ -39,6 +39,8 @@ import {
   syncContactToZohoStorage,
 } from "@/lib/contactStorage";
 import { checkForDuplicates, type DuplicateMatch } from "@/lib/duplicateDetection";
+import { loadUserSettings } from "@/lib/settingsStorage";
+import { sendThankYouOutreach } from "@/lib/localContactApi";
 import { parseScanContact } from "@/lib/scanResult";
 import { scanFileAndStore } from "@/lib/scanPipeline";
 import { loadScanSession, readFileAsDataUrl, dataUrlToFile, isEmptyScanContact } from "@/lib/scanSession";
@@ -88,10 +90,6 @@ export const LeadReviewPage = () => {
   const [duplicateMatch, setDuplicateMatch] = useState<DuplicateMatch | null>(null);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [ocrWarning, setOcrWarning] = useState<string | null>(null);
-  const [scanWhatsappQueued, setScanWhatsappQueued] = useState(false);
-  const [scanWhatsappError, setScanWhatsappError] = useState<string | null>(null);
-  const [scanEmailQueued, setScanEmailQueued] = useState(false);
-  const [scanEmailError, setScanEmailError] = useState<string | null>(null);
   const [showAdvancedFields, setShowAdvancedFields] = useState(false);
 
   const { success, error, info } = useToast();
@@ -153,10 +151,6 @@ export const LeadReviewPage = () => {
     if (imageDataUrl) setSavedScanImage(imageDataUrl);
     if (contact) applyScanData(parseScanContact(contact));
     setOcrWarning(meta?.ocrWarning ?? null);
-    setScanWhatsappQueued(Boolean(meta?.whatsappQueued));
-    setScanWhatsappError(meta?.whatsappError ?? null);
-    setScanEmailQueued(Boolean(meta?.emailQueued));
-    setScanEmailError(meta?.emailError ?? null);
   }, [applyScanData]);
 
   const handleFormChange = (name: string, value: string) => {
@@ -220,36 +214,9 @@ export const LeadReviewPage = () => {
     try {
       const dataUrl = await readFileAsDataUrl(file);
       setSavedScanImage(dataUrl);
-      const {
-        contact,
-        ocrWarning: warning,
-        whatsappQueued,
-        whatsappError,
-        whatsappTo,
-        whatsappRecipientName,
-        emailQueued,
-        emailError,
-        emailTo,
-        emailExtracted,
-      } = await scanFileAndStore(file, dataUrl);
+      const { contact, ocrWarning: warning } = await scanFileAndStore(file, dataUrl);
       applyScanData(parseScanContact(contact));
       setOcrWarning(warning ?? null);
-      setScanWhatsappQueued(Boolean(whatsappQueued));
-      setScanWhatsappError(whatsappError ?? null);
-      setScanEmailQueued(Boolean(emailQueued));
-      setScanEmailError(emailError ?? null);
-      if (whatsappError) {
-        error(`WhatsApp not sent: ${whatsappError}`);
-      } else if (whatsappQueued) {
-        const who = whatsappRecipientName || whatsappTo || "the card holder";
-        success(`WhatsApp thank-you sent to ${who}.`);
-      }
-      if (emailError) {
-        error(`Email not sent: ${emailError}`);
-      } else if (emailQueued) {
-        const recipient = emailTo || emailExtracted || "the card holder";
-        success(`Thank-you email sent to ${recipient}.`);
-      }
       if (warning) {
         info(warning);
       } else {
@@ -283,6 +250,45 @@ export const LeadReviewPage = () => {
       }
     })();
   }, [scanRevision, isExtracting]);
+
+  const sendOutreachAfterSave = async (payload: LeadPayload) => {
+    const settings = loadUserSettings();
+    const email = payload.email?.trim();
+    if (!settings.emailNotificationsEnabled && !settings.whatsappNotificationsEnabled) {
+      return;
+    }
+    if (settings.emailNotificationsEnabled && !email) {
+      info("No email on this contact — thank-you email skipped.");
+      return;
+    }
+    if (isOfflineMode() && !navigator.onLine) {
+      info("Offline — thank-you email will send when you sync to Zoho.");
+      return;
+    }
+
+    try {
+      const result = await sendThankYouOutreach(payload, {
+        connectionMode: getConnectionMode(),
+        skipWhatsApp: !settings.whatsappNotificationsEnabled,
+        skipEmail: !settings.emailNotificationsEnabled,
+      });
+      if (result.email_error) {
+        error(`Email not sent: ${result.email_error}`);
+      } else if (result.email_sent) {
+        const to = result.email_to || email || "recipient";
+        success(`Thank-you email sent to ${to}.`);
+      }
+      if (result.whatsapp_error) {
+        error(`WhatsApp not sent: ${result.whatsapp_error}`);
+      } else if (result.whatsapp_sent) {
+        success("WhatsApp thank-you sent.");
+      }
+    } catch (outreachErr) {
+      const msg =
+        outreachErr instanceof Error ? outreachErr.message : "Outreach failed";
+      error(msg);
+    }
+  };
 
   const buildPayload = (): LeadPayload => ({
     fullName: resolvedFullName,
@@ -330,18 +336,23 @@ export const LeadReviewPage = () => {
           await updateContact(existingId, payload);
         }
       } else {
+        const settings = loadUserSettings();
         const saved = await saveContact(payload, imageDataUrl, {
           connectionMode: getConnectionMode(),
-          skipWhatsApp: scanWhatsappQueued,
-          skipEmail: scanEmailQueued,
+          skipWhatsApp: !settings.whatsappNotificationsEnabled,
+          skipEmail: !settings.emailNotificationsEnabled,
         });
         contactId = saved.id;
 
         if (saved.queued) {
-          info(`${label} not available. Saved in browser queue. Start: npm run server`);
+          info("Saved to queue. Will sync to Zoho CRM automatically when you're online.");
           sessionStorage.removeItem("latestScanResult");
-          navigate({ to: "/contacts" });
+          navigate({ to: "/queue" });
           return;
+        }
+
+        if (!saved.queued) {
+          await sendOutreachAfterSave(payload);
         }
       }
 
@@ -373,12 +384,13 @@ export const LeadReviewPage = () => {
       return;
     }
 
+    const settings = loadUserSettings();
     const saved = await saveContact(payload, imageDataUrl, {
       connectionMode: getConnectionMode(),
-      skipWhatsApp: scanWhatsappQueued,
-      skipEmail: scanEmailQueued,
+      skipWhatsApp: !settings.whatsappNotificationsEnabled,
+      skipEmail: !settings.emailNotificationsEnabled,
     });
-    info(`${label} not available. Saved in browser queue. Start: npm run server`);
+    info("Saved to browser queue. Will sync when storage is available.");
     sessionStorage.removeItem("latestScanResult");
     navigate({ to: "/queue" });
   };

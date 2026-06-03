@@ -6,6 +6,8 @@ export type UserSettings = {
   whatsappPhone: string;
   integrationEmail: string;
   notificationsEnabled: boolean;
+  emailNotificationsEnabled: boolean;
+  whatsappNotificationsEnabled: boolean;
 };
 
 const STORAGE_KEY = "cs-user-settings";
@@ -18,6 +20,8 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   whatsappPhone: "+1 415 555 0142",
   integrationEmail: "hello@cardsync.ai",
   notificationsEnabled: true,
+  emailNotificationsEnabled: true,
+  whatsappNotificationsEnabled: true,
 };
 
 export function loadUserSettings(): UserSettings {

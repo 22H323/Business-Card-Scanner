@@ -1,33 +1,50 @@
-import { createWorker } from "tesseract.js";
+import { createWorker, type Worker } from "tesseract.js";
 import type { ScanContact } from "./scanResult";
 import { parseOcrText } from "./scanParser";
 
 import workerPath from "tesseract.js/dist/worker.min.js?url";
 import corePath from "tesseract.js-core/tesseract-core.wasm.js?url";
 
-const LANGUAGE = "eng";
-const LANG_PATH = "/tessdata";
-
-async function createTesseractWorker() {
-  const worker = createWorker({
-    workerPath,
-    corePath,
-    langPath: LANG_PATH,
-    gzip: false,
-    logger: () => undefined,
-  });
-
-  await worker.load();
-  await worker.loadLanguage(LANGUAGE);
-  await worker.initialize(LANGUAGE);
-  return worker;
+/** Directory URL for eng.traineddata (public/tessdata, copied to dist on build). */
+function getLangPath(): string {
+  if (typeof window === "undefined") {
+    return "/tessdata";
+  }
+  const base = import.meta.env.BASE_URL || "/";
+  const path = `${base.replace(/\/$/, "")}/tessdata`.replace(/^\//, "");
+  return `${window.location.origin}/${path}`;
 }
 
-export async function runBrowserOcr(file: File): Promise<{ contact: ScanContact; rawText: string; ocrWarning?: string }> {
+function resolveBundledAsset(importedUrl: string): string {
+  if (typeof window === "undefined") {
+    return importedUrl;
+  }
+  if (/^https?:\/\//i.test(importedUrl)) {
+    return importedUrl;
+  }
+  return new URL(importedUrl, window.location.origin).href;
+}
+
+async function createTesseractWorker(): Promise<Worker> {
+  return createWorker("eng", 1, {
+    workerPath: resolveBundledAsset(workerPath),
+    corePath: resolveBundledAsset(corePath),
+    langPath: getLangPath(),
+    gzip: false,
+    cacheMethod: "refresh",
+    logger: () => undefined,
+  });
+}
+
+export async function runBrowserOcr(
+  file: File,
+): Promise<{ contact: ScanContact; rawText: string; ocrWarning?: string }> {
+  let worker: Worker | null = null;
   try {
-    const worker = await createTesseractWorker();
+    worker = await createTesseractWorker();
     const { data } = await worker.recognize(file);
     await worker.terminate();
+    worker = null;
 
     const rawText = data.text?.trim() || "";
     if (!rawText) {
@@ -43,11 +60,22 @@ export async function runBrowserOcr(file: File): Promise<{ contact: ScanContact;
       rawText,
     };
   } catch (error) {
-    console.warn("Browser OCR fallback failed:", error);
+    console.warn("Browser OCR failed:", error);
+    if (worker) {
+      try {
+        await worker.terminate();
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+    const detail =
+      import.meta.env.DEV && error instanceof Error
+        ? ` (${error.message})`
+        : "";
     return {
       contact: parseOcrText(""),
       rawText: "",
-      ocrWarning: "Offline OCR fallback is unavailable. Enter details manually.",
+      ocrWarning: `Offline scan failed.${detail} Enter details manually, or check that /tessdata/eng.traineddata loads.`,
     };
   }
 }

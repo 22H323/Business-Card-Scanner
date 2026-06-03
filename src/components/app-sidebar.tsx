@@ -66,11 +66,11 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       asChild
                       isActive={active}
-                      className="h-10 rounded-xl data-[active=true]:bg-accent data-[active=true]:text-accent-foreground data-[active=true]:font-medium"
+                      className="h-10 rounded-[0.5rem] data-[active=true]:rounded-[0.5rem] data-[active=true]:bg-accent data-[active=true]:text-accent-foreground data-[active=true]:font-medium"
                     >
                       <Link to={item.url} className="flex items-center gap-3">
                         <item.icon className="h-4 w-4" />
-                        {!collapsed && <span className="text-sm">{item.title}</span>}
+                        {!collapsed && <span className="text-md">{item.title}</span>}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

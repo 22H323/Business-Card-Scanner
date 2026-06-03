@@ -1,5 +1,5 @@
-import { canRunScanOcr } from "@/lib/backendTargets";
 import { scanCardImage } from "@/lib/scanApi";
+import { isOfflineMode } from "@/lib/connectionMode";
 import { emptyScanContact, type ScanContact } from "@/lib/scanResult";
 import { runBrowserOcr } from "@/lib/browserOcr";
 import { storeScanSession } from "@/lib/scanSession";
@@ -23,6 +23,15 @@ export type ScanExtractionResult = {
   emailExtracted?: string | null;
 };
 
+/**
+ * Offline path only: browser Tesseract.js (no API call).
+ * Online path always uses server OCR first (Python /scan-card); browser is fallback only.
+ */
+function isOfflineScanContext(): boolean {
+  if (isOfflineMode()) return true;
+  return typeof navigator !== "undefined" && !navigator.onLine;
+}
+
 function isEmptyServerOcr(result: Awaited<ReturnType<typeof scanCardImage>>): boolean {
   const text = (result.raw_text || "").trim();
   const name = (result.contact?.name || result.contact?.fullName || "").trim();
@@ -32,11 +41,12 @@ function isEmptyServerOcr(result: Awaited<ReturnType<typeof scanCardImage>>): bo
   return name.length < 2;
 }
 
-async function runBrowserOcrFallback(
+async function runBrowserTesseract(
   file: File,
   onProgress?: (update: ScanProgress) => void,
+  progressMessage = "Running browser Tesseract…",
 ): Promise<ScanExtractionResult> {
-  onProgress?.({ progress: 55, message: "Running browser OCR…" });
+  onProgress?.({ progress: 55, message: progressMessage });
   const fallback = await runBrowserOcr(file);
   onProgress?.({ progress: 100, message: "Extraction complete" });
   return {
@@ -46,29 +56,27 @@ async function runBrowserOcrFallback(
   };
 }
 
-/** Run OCR on the image file as-is (no crop). Returns parsed contact + raw API payload. */
-export async function extractContactFromImage(
+/** Online: server OCR (Render/Python). Offline: browser Tesseract only. */
+async function extractWithServerOcr(
   file: File,
   onProgress?: (update: ScanProgress) => void,
 ): Promise<ScanExtractionResult> {
   onProgress?.({ progress: 15, message: "Uploading image…" });
 
   try {
-    onProgress?.({
-      progress: 40,
-      message:
-        typeof navigator !== "undefined" && !navigator.onLine
-          ? "Running local OCR (no internet needed)…"
-          : "Running OCR on server…",
-    });
+    onProgress?.({ progress: 40, message: "Running server OCR…" });
     const result = await scanCardImage(file);
 
     if (isEmptyServerOcr(result)) {
-      console.warn("Server OCR empty — trying browser OCR (Render may lack Tesseract).");
+      console.warn("Server OCR empty — trying browser Tesseract (Render may lack Tesseract).");
       try {
-        return await runBrowserOcrFallback(file, onProgress);
+        return await runBrowserTesseract(
+          file,
+          onProgress,
+          "Server OCR empty — running browser Tesseract…",
+        );
       } catch (browserErr) {
-        console.error("Browser OCR after empty server response failed:", browserErr);
+        console.error("Browser Tesseract after empty server response failed:", browserErr);
       }
     }
 
@@ -91,19 +99,16 @@ export async function extractContactFromImage(
     }
     return { contact: emptyScanContact(), ocrWarning: result.ocr_warning };
   } catch (err) {
-    console.warn("Remote OCR failed, falling back to browser OCR:", err);
+    console.warn("Server OCR failed, falling back to browser Tesseract:", err);
 
     try {
-      onProgress?.({ progress: 50, message: "Running browser OCR fallback…" });
-      const fallback = await runBrowserOcr(file);
-      onProgress?.({ progress: 100, message: "Extraction complete" });
-      return {
-        contact: fallback.contact,
-        rawText: fallback.rawText,
-        ocrWarning: fallback.ocrWarning,
-      };
+      return await runBrowserTesseract(
+        file,
+        onProgress,
+        "Server unreachable — running browser Tesseract…",
+      );
     } catch (browserErr) {
-      console.error("Browser OCR fallback failed:", browserErr);
+      console.error("Browser Tesseract fallback failed:", browserErr);
       onProgress?.({ progress: 100, message: "Extraction failed — enter details manually" });
       const offlineHint =
         typeof navigator !== "undefined" && !navigator.onLine
@@ -113,10 +118,36 @@ export async function extractContactFromImage(
           : "";
       return {
         contact: emptyScanContact(),
-        ocrWarning: `OCR failed.${offlineHint}`,
+        ocrWarning: `Server OCR failed.${offlineHint}`,
       };
     }
   }
+}
+
+/** Run OCR on the image file as-is (no crop). Returns parsed contact + raw API payload. */
+export async function extractContactFromImage(
+  file: File,
+  onProgress?: (update: ScanProgress) => void,
+): Promise<ScanExtractionResult> {
+  if (isOfflineScanContext()) {
+    const offlineMsg =
+      typeof navigator !== "undefined" && !navigator.onLine
+        ? "No internet — running browser Tesseract…"
+        : "Running browser Tesseract (offline mode)…";
+    onProgress?.({ progress: 20, message: offlineMsg });
+    try {
+      return await runBrowserTesseract(file, onProgress);
+    } catch (browserErr) {
+      console.error("Offline browser Tesseract failed:", browserErr);
+      return {
+        contact: emptyScanContact(),
+        ocrWarning:
+          "Offline scan could not read this image. Try better lighting or enter details manually.",
+      };
+    }
+  }
+
+  return extractWithServerOcr(file, onProgress);
 }
 
 export async function scanFileAndStore(

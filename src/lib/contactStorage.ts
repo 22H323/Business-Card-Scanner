@@ -1,5 +1,6 @@
 import type { LeadPayload } from "@/lib/cardImage";
 import { API_BASE_URL } from "@/lib/api";
+import { isOfflineMode } from "@/lib/connectionMode";
 import {
   getContactStorageMode,
   isIndexedDbStorage,
@@ -10,10 +11,13 @@ import {
 import {
   addToQueue,
   deleteStoredContact,
+  getQueueItems,
   getStoredContactById,
   listStoredContacts,
   patchStoredContactSyncStatus,
+  removeQueueItem,
   saveStoredContact,
+  updateQueueItem,
   updateStoredContact,
   type QueueItem,
 } from "@/lib/indexeddb";
@@ -78,6 +82,62 @@ export async function getContactById(contactId: string): Promise<StoredContact |
   }
 }
 
+function isOfflineSave(options?: { connectionMode?: "online" | "offline" }): boolean {
+  // No network → always queue for Zoho (even if top bar says Online).
+  if (typeof navigator !== "undefined" && !navigator.onLine) return true;
+  if (options?.connectionMode === "offline") return true;
+  if (options?.connectionMode === "online") return false;
+  return isOfflineMode();
+}
+
+/** Push one browser queue row to Zoho, then store locally as synced and remove from queue. */
+export async function syncQueueItemToZoho(item: QueueItem): Promise<{ zohoLeadId?: string }> {
+  if (!navigator.onLine) {
+    throw new Error("No internet. Connect to sync to Zoho CRM.");
+  }
+  const payload = queueContactToPayload(item.contact_data);
+  const result = await syncPayloadToZoho(payload);
+  const zohoLeadId = result.zohoLeadId;
+  await saveStoredContact(
+    {
+      ...(item.contact_data as Record<string, unknown>),
+      syncStatus: "synced_zoho",
+      zohoLeadId: zohoLeadId ?? null,
+    },
+    item.image_base64,
+  );
+  await removeQueueItem(item.id);
+  return { zohoLeadId };
+}
+
+export async function syncAllQueueItemsToZoho(): Promise<{ synced: number; total: number }> {
+  const items = await getQueueItems();
+  const pending = items.filter((i) => i.status === "pending" || i.status === "retrying");
+  let synced = 0;
+  for (const item of pending) {
+    try {
+      await updateQueueItem({
+        ...item,
+        status: "retrying",
+        last_attempt: new Date().toISOString(),
+      });
+      await syncQueueItemToZoho(item);
+      synced += 1;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Zoho sync failed";
+      const nextRetry = item.retry_count + 1;
+      await updateQueueItem({
+        ...item,
+        status: nextRetry >= 5 ? "failed" : "pending",
+        retry_count: nextRetry,
+        last_attempt: new Date().toISOString(),
+        error_message: message,
+      });
+    }
+  }
+  return { synced, total: pending.length };
+}
+
 export async function saveContact(
   payload: LeadPayload,
   cardImageBase64?: string,
@@ -87,6 +147,19 @@ export async function saveContact(
     skipEmail?: boolean;
   },
 ): Promise<{ id: string; queued?: boolean; whatsappQueued?: boolean; emailQueued?: boolean }> {
+  // Offline mode (or no network): browser queue only — sync to Zoho when back online.
+  if (isIndexedDbStorage() && isOfflineSave(options)) {
+    const queueId = crypto.randomUUID();
+    await addToQueue(
+      buildQueueItemFromPayload(
+        payload,
+        cardImageBase64,
+        "Saved offline — will sync to Zoho when online",
+      ),
+    );
+    return { id: queueId, queued: true };
+  }
+
   if (isIndexedDbStorage()) {
     const saved = await saveStoredContact(payload as Record<string, unknown>, cardImageBase64);
     return { id: saved.id };
@@ -203,8 +276,14 @@ export async function fetchStorageConfig(): Promise<{
   return res.json();
 }
 
+/** Browser queue → PostgreSQL when using server DB. */
 export function shouldUseOfflineQueue(): boolean {
   return isServerStorage();
+}
+
+/** Browser queue → Zoho when using IndexedDB storage. */
+export function shouldUseIndexedDbQueueSync(): boolean {
+  return isIndexedDbStorage();
 }
 
 export function buildQueueItemFromPayload(

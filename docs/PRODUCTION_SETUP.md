@@ -26,11 +26,31 @@ git push
 
 ### B1. Switch to Docker (required for server OCR)
 
-1. Open https://dashboard.render.com → service **business-card-scanner-2**
-2. **Settings** → **Runtime** → **Docker**
-3. **Dockerfile path:** `./Dockerfile`
-4. **Docker build context:** `.` (repo root)
-5. Save
+On Render **Free**, there is no **Runtime** row on the **General** tab. The **Python 3** badge at the top is your current runtime.
+
+**Where to change it (2026 dashboard):**
+
+1. Open https://dashboard.render.com → **Business-Card-Scanner-2**
+2. Left menu → **Settings**
+3. Right sidebar → click **Build** (not General)
+4. Under **Build** → **Source** → click **Edit**
+5. In **Update Source**:
+   - **Runtime / Language:** choose **Docker**
+   - **Dockerfile path:** `./Dockerfile`
+   - **Build command:** leave empty (Dockerfile handles install)
+   - **Start command:** leave empty (uses `CMD` in Dockerfile)
+6. Save → Render starts a new deploy (first Docker build ~5–10 min)
+
+**If you do not see “Docker” in that dialog** (some older services):
+
+- Create a **new** Web Service: **New +** → **Web Service** → same GitHub repo
+- At creation, set **Language** to **Docker** (not Python 3)
+- **Dockerfile path:** `./Dockerfile`
+- Plan: **Free**
+- Copy all **Environment** variables from the old service
+- Use the **new** URL in Netlify `VITE_API_URL` (or rename service to keep the same hostname if Render allows)
+
+**Free plan note:** Docker on Free is supported; builds are slower and the service sleeps when idle (cold start ~30s).
 
 ### B2. Environment variables (Render → Environment)
 
@@ -71,6 +91,21 @@ If `ocr` is missing or `false`, runtime is still not Docker or deploy failed —
 - POST https://business-card-scanner-2.onrender.com/scan-card  
 - Form field `card` = JPG/PNG business card  
 - Response should include `raw_text` with readable text (not empty).
+
+---
+
+## Part B-alt — No Docker? Use browser OCR only (Free, easiest)
+
+If you cannot switch to Docker:
+
+1. **Redeploy Netlify** only (push latest code → Clear cache and deploy)
+2. Unregister service worker in the browser (F12 → Application)
+3. Scan on https://businesscardscannertesting.netlify.app/scan  
+   → App calls Render, gets empty text, then runs **Tesseract in the browser**
+4. On **Review**, confirm **email** and **phone** are filled (edit manually if needed)
+5. **Save** — WhatsApp/email need those fields + env vars on Render
+
+Server OCR will not work until Docker is enabled; browser OCR can still read cards.
 
 ---
 
