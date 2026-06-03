@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cardsync-cache-v1';
+const CACHE_NAME = 'cardsync-cache-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/scan',
@@ -41,8 +41,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Bypass API requests to let our application code handle them with fallbacks
-  if (event.request.url.includes('/api/') || event.request.url.includes(':8000')) {
+  const requestUrl = new URL(event.request.url);
+
+  // Never intercept cross-origin requests (Render API, etc.) — avoids CORS/SW fetch errors
+  if (requestUrl.origin !== self.location.origin) {
+    return;
+  }
+
+  // Same-origin API paths (Vite dev proxy / combined deploy)
+  if (
+    requestUrl.pathname.startsWith('/api/') ||
+    requestUrl.pathname.startsWith('/health') ||
+    requestUrl.pathname.startsWith('/scan-card') ||
+    requestUrl.pathname.startsWith('/contacts') ||
+    requestUrl.pathname.startsWith('/integrations') ||
+    requestUrl.pathname.startsWith('/admin')
+  ) {
     return;
   }
 
