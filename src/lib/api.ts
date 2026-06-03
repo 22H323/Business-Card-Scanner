@@ -1,18 +1,24 @@
-const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
+import { normalizeApiUrl, PRODUCTION_API_URL } from "@/lib/productionApi";
+
+const configuredApiUrl = import.meta.env.VITE_API_URL
+  ? normalizeApiUrl(import.meta.env.VITE_API_URL)
+  : "";
 
 function resolveDefaultApiUrl(): string {
   if (configuredApiUrl) {
     return configuredApiUrl;
   }
-  // Production: API and static app share one host (npm run backend after build).
-  if (!import.meta.env.DEV && typeof window !== "undefined" && window.location?.origin) {
-    return window.location.origin;
+  if (!import.meta.env.DEV) {
+    // Netlify / static host: API is on Render, not the page origin.
+    if (typeof window !== "undefined") {
+      const host = window.location.hostname;
+      if (host.includes("onrender.com")) {
+        return normalizeApiUrl(window.location.origin);
+      }
+    }
+    return PRODUCTION_API_URL;
   }
-  // Local dev default (port 5000 — see npm run server).
-  if (import.meta.env.DEV) {
-    return "http://127.0.0.1:5000";
-  }
-  return "";
+  return "http://127.0.0.1:5000";
 }
 
 if (!configuredApiUrl && import.meta.env.DEV) {

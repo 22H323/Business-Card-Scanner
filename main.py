@@ -57,7 +57,14 @@ app = FastAPI(
     ],
 )
 
-# List of allowed CORS origins for the frontend (add your own as needed)
+def _normalize_origin(origin: str) -> str:
+    """Browsers send Origin without a path (e.g. /scan); strip trailing slashes from config."""
+    return origin.strip().rstrip("/")
+
+
+# Netlify production site (covers /scan, /contacts, and all client routes)
+NETLIFY_FRONTEND_ORIGIN = "https://businesscardscannertesting.netlify.app"
+
 allowed_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -69,30 +76,36 @@ allowed_origins = [
     "http://127.0.0.1:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
+    NETLIFY_FRONTEND_ORIGIN,
 ]
 
-# Any localhost port (Vite may pick 5173, 5174, etc.)
-local_dev_origin_regex = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
+# Local dev + Netlify deploy previews (branch URLs like name--site.netlify.app)
+cors_origin_regex = (
+    r"https?://(localhost|127\.0\.0\.1)(:\d+)?|"
+    r"https://([a-zA-Z0-9-]+--)?[a-zA-Z0-9-]+\.netlify\.app"
+)
 
-# Support for dynamic origins via environment variable if set
 frontend_url = os.getenv("FRONTEND_URL")
 if frontend_url:
-    allowed_origins.append(frontend_url)
+    allowed_origins.append(_normalize_origin(frontend_url))
 
 allowed_origins_str = os.getenv("ALLOWED_ORIGINS")
 if allowed_origins_str:
-    origins = [origin.strip() for origin in allowed_origins_str.split(",") if origin.strip()]
-    allowed_origins.extend(origins)
+    allowed_origins.extend(
+        _normalize_origin(origin)
+        for origin in allowed_origins_str.split(",")
+        if origin.strip()
+    )
 
-# Remove duplicates so we don't accidentally apply the same origin twice
-allowed_origins = list(set(allowed_origins))
+allowed_origins = list({_normalize_origin(origin) for origin in allowed_origins})
+logger.info("CORS allowed origins: %s", ", ".join(sorted(allowed_origins)))
 
 # CORS must be added after `app` is created. Do not combine allow_origins=["*"]
 # with allow_credentials=True — browsers reject that and show a CORS error.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=local_dev_origin_regex,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

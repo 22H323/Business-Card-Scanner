@@ -1,0 +1,467 @@
+{
+  "info": {
+    "_postman_id": "cardsync-ai-production",
+    "name": "CardSync AI — Production API",
+    "description": "All CardSync FastAPI endpoints against Render production.\n\n**Base URL:** `https://business-card-scanner-1-t2ys.onrender.com`\n\nImport `CardSync-AI-Production.postman_environment.json` and select environment **CardSync — Production (Render)**.\n\n**Scan card:** In *OCR → Scan business card*, choose any JPG/PNG in the `card` form field.\n\n**Variables:** `contactId` / `leadId` are auto-set when you run *Create contact* or *List leads* (see Tests tab).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://business-card-scanner-1-t2ys.onrender.com"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health & Docs",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "Service health, storage mode, DB and Zoho status."
+          },
+          "response": []
+        },
+        {
+          "name": "OpenAPI JSON",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/openapi.json",
+            "description": "Machine-readable API schema (same as Swagger)."
+          },
+          "response": []
+        },
+        {
+          "name": "Swagger UI (browser)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/docs",
+            "description": "Open in browser for interactive docs."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "OCR",
+      "item": [
+        {
+          "name": "Scan business card",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('success', () => pm.expect(j.success).to.eql(true));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "card",
+                  "description": "JPG, JPEG, or PNG business card image",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "connection_mode",
+                  "value": "online",
+                  "description": "online | offline",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/scan-card",
+            "description": "Upload a card image; returns OCR text and parsed contact fields."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Contacts (local DB)",
+      "item": [
+        {
+          "name": "List contacts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/contacts",
+            "description": "All contacts from PostgreSQL/local storage."
+          },
+          "response": []
+        },
+        {
+          "name": "Check duplicates",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Jane Doe\",\n  \"company\": \"Acme Corp\",\n  \"phone\": \"+919876543210\",\n  \"email\": \"jane@acme.com\"\n}"
+            },
+            "url": "{{baseUrl}}/contacts/check-duplicates"
+          },
+          "response": []
+        },
+        {
+          "name": "Create contact (multipart + optional card)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "contact",
+                  "value": "{\"fullName\":\"Jane Doe\",\"company\":\"Acme Corp\",\"phone\":\"+919876543210\",\"email\":\"jane@acme.com\",\"connectionMode\":\"online\",\"skipWhatsApp\":true,\"skipEmail\":true}",
+                  "type": "text"
+                },
+                {
+                  "key": "card",
+                  "type": "file",
+                  "src": [],
+                  "disabled": true
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/contacts"
+          },
+          "response": []
+        },
+        {
+          "name": "Update contact",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"fullName\": \"Jane Doe Updated\",\n    \"company\": \"Acme Corp\",\n    \"phone\": \"+919876543210\",\n    \"email\": \"jane@acme.com\"\n  }\n}"
+            },
+            "url": "{{baseUrl}}/contacts/{{contactId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete contact",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/contacts/{{contactId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "Seed sample contact",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/contacts/seed-sample"
+          },
+          "response": []
+        },
+        {
+          "name": "Sync pending contacts to Zoho",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/contacts/sync-pending-to-zoho"
+          },
+          "response": []
+        },
+        {
+          "name": "Sync single contact to Zoho",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/contacts/{{contactId}}/sync-to-zoho"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Contacts API (UI shape)",
+      "item": [
+        {
+          "name": "Storage config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/storage/config"
+          },
+          "response": []
+        },
+        {
+          "name": "List contacts (UI shape)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/contacts"
+          },
+          "response": []
+        },
+        {
+          "name": "Get contact by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/contacts/{{contactId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "Create contact (JSON)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  if (j.id) pm.environment.set('contactId', j.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"John Smith\",\n  \"firstName\": \"John\",\n  \"lastName\": \"Smith\",\n  \"designation\": \"Sales Manager\",\n  \"company\": \"Example Ltd\",\n  \"phone\": \"+919876543210\",\n  \"email\": \"john@example.com\",\n  \"website\": \"https://example.com\",\n  \"address\": \"Hyderabad, IN\",\n  \"connectionMode\": \"online\",\n  \"skipWhatsApp\": true,\n  \"skipEmail\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/contacts"
+          },
+          "response": []
+        },
+        {
+          "name": "Update contact (JSON)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"John Smith\",\n  \"company\": \"Example Ltd Updated\",\n  \"phone\": \"+919876543210\",\n  \"email\": \"john@example.com\",\n  \"connectionMode\": \"online\",\n  \"skipWhatsApp\": true,\n  \"skipEmail\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/contacts/{{contactId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "Patch sync status",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"syncStatus\": \"synced\",\n  \"zohoLeadId\": \"{{leadId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/contacts/{{contactId}}/sync-status"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete contact",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/contacts/{{contactId}}?deleteZoho=false",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contacts", "{{contactId}}"],
+              "query": [{ "key": "deleteZoho", "value": "false" }]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete contact (+ Zoho)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/contacts/{{contactId}}?deleteZoho=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contacts", "{{contactId}}"],
+              "query": [{ "key": "deleteZoho", "value": "true" }]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Leads (Zoho CRM)",
+      "item": [
+        {
+          "name": "List Zoho leads",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  const list = Array.isArray(j) ? j : (j.data || []);",
+                  "  if (list[0]?.id) pm.environment.set('leadId', list[0].id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/leads"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Zoho lead",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  const id = j.lead?.id;",
+                  "  if (id) pm.environment.set('leadId', id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Postman Test Lead\",\n  \"designation\": \"Manager\",\n  \"company\": \"Test Company\",\n  \"phone\": \"+919876543210\",\n  \"email\": \"lead@example.com\",\n  \"website\": \"https://example.com\",\n  \"address\": \"India\"\n}"
+            },
+            "url": "{{baseUrl}}/api/leads/create"
+          },
+          "response": []
+        },
+        {
+          "name": "Sync from local to Zoho",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Offline Contact\",\n  \"company\": \"Local Co\",\n  \"phone\": \"+919876543210\",\n  \"email\": \"offline@example.com\"\n}"
+            },
+            "url": "{{baseUrl}}/api/leads/sync-from-local"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Zoho lead",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/leads/{{leadId}}"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Integrations",
+      "item": [
+        {
+          "name": "WhatsApp — queue message",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact_phone\": \"{{testPhone}}\",\n  \"message\": \"Thank you from CardSync!\"\n}"
+            },
+            "url": "{{baseUrl}}/integrations/whatsapp/queue"
+          },
+          "response": []
+        },
+        {
+          "name": "WhatsApp — test send",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact_phone\": \"{{testPhone}}\",\n  \"message\": \"Test from Postman\",\n  \"mode\": \"auto\"\n}"
+            },
+            "url": "{{baseUrl}}/integrations/whatsapp/test",
+            "description": "mode: auto | text | template | business-card"
+          },
+          "response": []
+        },
+        {
+          "name": "Email — queue message",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact_email\": \"{{testEmail}}\",\n  \"message\": \"Thank you from CardSync!\"\n}"
+            },
+            "url": "{{baseUrl}}/integrations/email/queue"
+          },
+          "response": []
+        },
+        {
+          "name": "Email — test send",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact_email\": \"{{testEmail}}\",\n  \"test_override\": \"{{testEmail}}\"\n}"
+            },
+            "url": "{{baseUrl}}/integrations/email/test"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin (destructive)",
+      "item": [
+        {
+          "name": "Wipe all data",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"confirm\": true,\n  \"include_zoho\": false\n}"
+            },
+            "url": "{{baseUrl}}/admin/wipe-all-data",
+            "description": "⚠️ Deletes all local contacts. Set include_zoho=true to also wipe Zoho leads. Only use on test environments."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

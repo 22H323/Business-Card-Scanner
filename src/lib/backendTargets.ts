@@ -1,18 +1,13 @@
 import { API_BASE_URL } from "@/lib/api";
 import { getConnectionMode, type ConnectionMode } from "@/lib/connectionMode";
+import { PRODUCTION_API_URL } from "@/lib/productionApi";
 import { storageLabel } from "@/lib/storageConfig";
 
 export function getScanApiBaseUrl(): string {
   if (API_BASE_URL) {
     return API_BASE_URL;
   }
-
-  if (typeof window !== "undefined" && window.location?.origin) {
-    return window.location.origin;
-  }
-
-  // Local dev only (production uses npm run backend + same origin).
-  return import.meta.env.DEV ? "http://127.0.0.1:5000" : "";
+  return import.meta.env.DEV ? "http://127.0.0.1:5000" : PRODUCTION_API_URL;
 }
 
 /** True when OCR runs on this PC (works without internet). */

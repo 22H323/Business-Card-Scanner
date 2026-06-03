@@ -49,7 +49,7 @@ npm run start:prod
 
 Open `http://localhost:8000` (or your host’s URL). Swagger: `http://localhost:8000/docs`.
 
-> On cloud hosts (Railway, Render, etc.), set `PORT` in the platform env; omit `VITE_API_URL` so the app uses the same origin as the API.
+> **Combined deploy** (API + frontend on one host, e.g. Render): set `PORT` and omit `VITE_API_URL` so the app uses the same origin. **Split deploy** (Netlify + Render): use `VITE_API_URL` → Render API URL (see Netlify section).
 
 ### Test production build locally (`dist/`)
 
@@ -72,11 +72,27 @@ This app uses **TanStack Start SSR**. Netlify needs the official plugin (already
 2. Build settings (also in `netlify.toml`):
    - **Build command:** `npm run build`
    - **Publish directory:** `dist/client`
-3. In Netlify → **Site configuration → Environment variables**, set:
-   - `VITE_API_URL` = your public Python API URL (e.g. `https://your-api.example.com`) — required for scan/contacts from the live site.
-4. Redeploy. The site should load at `/` and routes like `/scan` (no “Page not found”).
+3. **API URL** (already in `netlify.toml`): `VITE_API_URL=https://business-card-scanner-1-t2ys.onrender.com`
+4. On **Render** (Python API), set `FRONTEND_URL=https://businesscardscannertesting.netlify.app` (or redeploy after pulling latest `main.py` CORS defaults), then redeploy the API.
+5. Redeploy Netlify after pushing. Test: open the site → **Status** or `/health` via the app should reach Render.
 
-> Netlify hosts the **website** only. Run the Python API elsewhere (`npm run backend` on a VPS, Railway, Render, etc.) and point `VITE_API_URL` at it.
+| Service | URL |
+|---------|-----|
+| Frontend (Netlify) | https://businesscardscannertesting.netlify.app |
+| API (Render) | https://business-card-scanner-1-t2ys.onrender.com |
+| API health | https://business-card-scanner-1-t2ys.onrender.com/health |
+| API docs | https://business-card-scanner-1-t2ys.onrender.com/docs |
+
+### Postman (production API testing)
+
+Import both files from the `postman/` folder:
+
+1. `postman/CardSync-AI-Production.postman_collection.json`
+2. `postman/CardSync-AI-Production.postman_environment.json`
+
+In Postman, select environment **CardSync — Production (Render)**. Start with **Health check**, then **Scan business card** (attach a JPG/PNG to the `card` field).
+
+> Local dev still uses `http://127.0.0.1:5000` (`npm run server`). Production builds call Render automatically.
 
 ---
 
