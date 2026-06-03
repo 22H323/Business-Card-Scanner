@@ -19,16 +19,37 @@ When you see `Local: http://localhost:5173` — open that link in Chrome or Edge
 
 ## 2. How to run the BACKEND (server)
 
+### Local development (port 5000 only)
+
 Open **Terminal 1** and run:
 
 ```
 cd c:\Sandeep\Sandeep_Projects\Yogesh\cardsync-ai-main\cardsync-ai-main
-python -m uvicorn main:app --reload --host 127.0.0.1 --port 5000
+npm run server
 ```
 
 When you see `Uvicorn running on http://127.0.0.1:5000` — backend is ready.
 
-> Keep this terminal open while using the app.
+> Keep this terminal open while using the app. Use **port 5000** only for local dev (`npm run server` or `npm run dev:all`).
+
+### Production (API + built website on one port)
+
+Build the frontend, then start the production backend (reads `PORT` from `.env`, default **8000**):
+
+```
+npm run build
+npm run backend
+```
+
+Or in one step:
+
+```
+npm run start:prod
+```
+
+Open `http://localhost:8000` (or your host’s URL). Swagger: `http://localhost:8000/docs`.
+
+> On cloud hosts (Railway, Render, etc.), set `PORT` in the platform env; omit `VITE_API_URL` so the app uses the same origin as the API.
 
 ---
 

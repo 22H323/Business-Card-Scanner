@@ -8,6 +8,8 @@
     "dev:all": "concurrently -k -n api,web -c green,magenta \"npm run server\" \"npm run dev\"",
     "start": "npm run dev:all",
     "server": "python -m uvicorn main:app --reload --host 127.0.0.1 --port 5000",
+    "backend": "python run_backend.py",
+    "start:prod": "npm run build && npm run backend",
     "local-db": "node ./node_modules/tsx/dist/cli.mjs server/local-db.ts",
     "db:generate": "prisma generate",
     "db:pull": "prisma db pull",

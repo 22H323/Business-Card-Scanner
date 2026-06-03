@@ -113,7 +113,13 @@ function SettingsPage() {
         );
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Wipe failed. Is the Python API running on port 5000?");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : import.meta.env.DEV
+            ? "Wipe failed. Is the Python API running? (npm run server, port 5000)"
+            : "Wipe failed. Is the Python API running? (npm run backend)",
+      );
     } finally {
       setIsWiping(false);
     }

@@ -74,7 +74,9 @@ export async function extractContactFromImage(
       onProgress?.({ progress: 100, message: "Extraction failed — enter details manually" });
       const offlineHint =
         typeof navigator !== "undefined" && !navigator.onLine
-          ? " Start the Python backend: python -m uvicorn main:app --reload --host 127.0.0.1 --port 5000"
+          ? import.meta.env.DEV
+            ? " Start the Python backend: npm run server (port 5000)"
+            : " Start the Python backend: npm run backend"
           : "";
       return {
         contact: emptyScanContact(),

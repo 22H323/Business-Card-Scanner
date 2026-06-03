@@ -11,7 +11,8 @@ export function getScanApiBaseUrl(): string {
     return window.location.origin;
   }
 
-  return "http://127.0.0.1:5000";
+  // Local dev only (production uses npm run backend + same origin).
+  return import.meta.env.DEV ? "http://127.0.0.1:5000" : "";
 }
 
 /** True when OCR runs on this PC (works without internet). */
