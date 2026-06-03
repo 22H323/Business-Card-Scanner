@@ -84,23 +84,28 @@ export async function checkLocalDbHealth(): Promise<boolean> {
   }
 }
 
+export type SaveContactResult = {
+  id: string;
+  zohoLeadId?: string;
+  zohoSynced?: boolean;
+  alreadySynced?: boolean;
+  zohoError?: string;
+};
+
 export async function saveContactToLocalDb(
   payload: LeadPayload,
   cardImageBase64?: string,
   options?: { connectionMode?: "online" | "offline"; skipWhatsApp?: boolean; skipEmail?: boolean },
-): Promise<{ id: string; whatsappQueued?: boolean; emailQueued?: boolean }> {
+): Promise<SaveContactResult> {
   const response = await fetch(`${API}/api/contacts`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payloadToLocalBody(payload, cardImageBase64, options)),
   });
 
-  const data = (await response.json()) as {
-    id?: string;
+  const data = (await response.json()) as SaveContactResult & {
     detail?: string;
     error?: string;
-    whatsapp_queued?: boolean;
-    email_queued?: boolean;
   };
   if (!response.ok) {
     throw new Error(
@@ -110,7 +115,13 @@ export async function saveContactToLocalDb(
   if (!data.id) {
     throw new Error("Server did not return a contact id");
   }
-  return { id: data.id, whatsappQueued: data.whatsapp_queued, emailQueued: data.email_queued };
+  return {
+    id: data.id,
+    zohoLeadId: data.zohoLeadId,
+    zohoSynced: data.zohoSynced,
+    alreadySynced: data.alreadySynced,
+    zohoError: data.zohoError,
+  };
 }
 
 export async function updateContactInLocalDb(
@@ -248,14 +259,9 @@ export async function markLocalContactSyncedZoho(
 /** Sync one local PostgreSQL contact to Zoho (server updates DB). */
 export async function syncLocalContactToZoho(
   contactId: string,
+  options?: { skipWhatsApp?: boolean; skipEmail?: boolean },
 ): Promise<{ zohoLeadId?: string; alreadySynced?: boolean }> {
-  const contact = await getLocalContactById(contactId).catch(() => null);
-
-  if (contact?.zohoLeadId || contact?.syncStatus === "synced_zoho") {
-    return { zohoLeadId: contact.zohoLeadId || undefined, alreadySynced: true };
-  }
-
-  return syncContactToZoho(contactId);
+  return syncContactToZoho(contactId, options);
 }
 
 export async function syncAllLocalPendingToZoho(): Promise<{

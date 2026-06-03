@@ -40,7 +40,6 @@ import {
 } from "@/lib/contactStorage";
 import { checkForDuplicates, type DuplicateMatch } from "@/lib/duplicateDetection";
 import { loadUserSettings } from "@/lib/settingsStorage";
-import { sendThankYouOutreach } from "@/lib/localContactApi";
 import { parseScanContact } from "@/lib/scanResult";
 import { scanFileAndStore } from "@/lib/scanPipeline";
 import { loadScanSession, readFileAsDataUrl, dataUrlToFile, isEmptyScanContact } from "@/lib/scanSession";
@@ -251,45 +250,6 @@ export const LeadReviewPage = () => {
     })();
   }, [scanRevision, isExtracting]);
 
-  const sendOutreachAfterSave = async (payload: LeadPayload) => {
-    const settings = loadUserSettings();
-    const email = payload.email?.trim();
-    if (!settings.emailNotificationsEnabled && !settings.whatsappNotificationsEnabled) {
-      return;
-    }
-    if (settings.emailNotificationsEnabled && !email) {
-      info("No email on this contact — thank-you email skipped.");
-      return;
-    }
-    if (isOfflineMode() && !navigator.onLine) {
-      info("Offline — thank-you email will send when you sync to Zoho.");
-      return;
-    }
-
-    try {
-      const result = await sendThankYouOutreach(payload, {
-        connectionMode: getConnectionMode(),
-        skipWhatsApp: !settings.whatsappNotificationsEnabled,
-        skipEmail: !settings.emailNotificationsEnabled,
-      });
-      if (result.email_error) {
-        error(`Email not sent: ${result.email_error}`);
-      } else if (result.email_sent) {
-        const to = result.email_to || email || "recipient";
-        success(`Thank-you email sent to ${to}.`);
-      }
-      if (result.whatsapp_error) {
-        error(`WhatsApp not sent: ${result.whatsapp_error}`);
-      } else if (result.whatsapp_sent) {
-        success("WhatsApp thank-you sent.");
-      }
-    } catch (outreachErr) {
-      const msg =
-        outreachErr instanceof Error ? outreachErr.message : "Outreach failed";
-      error(msg);
-    }
-  };
-
   const buildPayload = (): LeadPayload => ({
     fullName: resolvedFullName,
     firstName: form.values.firstName,
@@ -351,32 +311,55 @@ export const LeadReviewPage = () => {
           return;
         }
 
-        if (!saved.queued) {
-          await sendOutreachAfterSave(payload);
-        }
-      }
+        const zohoDoneOnSave =
+          Boolean(saved.zohoSynced) || Boolean(saved.zohoLeadId) || Boolean(saved.zohoError);
 
-      const shouldSyncZoho =
-        !isOfflineMode() && navigator.onLine && Boolean(contactId);
-
-      if (shouldSyncZoho && contactId) {
-        try {
-          const zohoResult = await syncContactToZohoStorage(contactId);
-          if (zohoResult.alreadySynced) {
+        if (zohoDoneOnSave) {
+          if (saved.zohoError) {
+            success(`Saved to ${label}.`);
+            error(`Zoho sync failed: ${saved.zohoError}. Use Sync to Zoho on Contacts.`);
+          } else if (saved.alreadySynced) {
             success("Saved — contact is already in Zoho CRM.");
           } else {
             success("Saved and synced to Zoho CRM.");
+            if (
+              settings.emailNotificationsEnabled ||
+              settings.whatsappNotificationsEnabled
+            ) {
+              info("Thank-you email/WhatsApp are sending in the background.");
+            }
           }
-        } catch (zohoErr: unknown) {
-          const msg =
-            zohoErr instanceof Error ? zohoErr.message : "Zoho sync failed";
-          success(`Saved to ${label}.`);
-          error(`Zoho sync failed: ${msg}. Use Sync to Zoho on Contacts.`);
+        } else if (!existingId) {
+          const shouldSyncZoho =
+            !isOfflineMode() && navigator.onLine && Boolean(contactId);
+
+          if (shouldSyncZoho && contactId) {
+            try {
+              const settings = loadUserSettings();
+              const zohoResult = await syncContactToZohoStorage(contactId, {
+                skipWhatsApp: !settings.whatsappNotificationsEnabled,
+                skipEmail: !settings.emailNotificationsEnabled,
+              });
+              if (zohoResult.alreadySynced) {
+                success("Saved — contact is already in Zoho CRM.");
+              } else {
+                success("Saved and synced to Zoho CRM.");
+                info("Thank-you email/WhatsApp are sending in the background.");
+              }
+            } catch (zohoErr: unknown) {
+              const msg =
+                zohoErr instanceof Error ? zohoErr.message : "Zoho sync failed";
+              success(`Saved to ${label}.`);
+              error(`Zoho sync failed: ${msg}. Use Sync to Zoho on Contacts.`);
+            }
+          } else {
+            success(`Saved to ${label}. Sync to Zoho from Contacts when online.`);
+          }
         }
-      } else if (existingId) {
+      }
+
+      if (existingId) {
         success(`Contact updated in ${label}.`);
-      } else {
-        success(`Saved to ${label}. Sync to Zoho from Contacts when online.`);
       }
 
       sessionStorage.removeItem("latestScanResult");

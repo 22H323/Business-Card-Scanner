@@ -3,7 +3,7 @@ import logging
 import asyncio
 from typing import Any, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from services.contact_service import (
@@ -109,6 +109,28 @@ async def _schedule_outreach_for_contact(
                 email_result = result
 
     return whatsapp_result, email_result
+
+
+async def _post_zoho_outreach(
+    contact_id: str,
+    *,
+    skip_whatsapp: bool = False,
+    skip_email: bool = False,
+) -> None:
+    """Thank-you email/WhatsApp after Zoho sync — runs in background so save API returns fast."""
+    contact = storage.get_contact(contact_id)
+    if not contact:
+        return
+    try:
+        await _schedule_outreach_for_contact(
+            contact,
+            on_zoho_sync=True,
+            contact_id=contact_id,
+            skip_whatsapp=skip_whatsapp,
+            skip_email=skip_email,
+        )
+    except Exception as exc:
+        logger.error("Background outreach failed for %s: %s", contact_id, exc, exc_info=True)
 
 
 @router.post("/scan-card", tags=["OCR"], summary="Scan a business card image")
@@ -362,6 +384,11 @@ class SyncStatusBody(BaseModel):
     zohoLeadId: str | None = None
 
 
+class SyncOutreachOptions(BaseModel):
+    skipWhatsApp: bool = False
+    skipEmail: bool = False
+
+
 @router.get("/api/storage/config", tags=["Contacts"])
 async def storage_config():
     from utils.storage_config import get_contact_storage_mode
@@ -386,15 +413,36 @@ async def get_contact_api(contact_id: str):
 
 
 @router.post("/api/contacts", tags=["Contacts"], summary="Save contact")
-async def create_contact_json(body: LocalContactBody):
+async def create_contact_json(body: LocalContactBody, background_tasks: BackgroundTasks):
     try:
         payload = body.model_dump()
         result = storage.create_contact(payload)
-        return {
+        contact_id = result["id"]
+        response: dict[str, Any] = {
             "success": True,
-            "id": result["id"],
-            "contact": storage.get_contact(result["id"]),
+            "id": contact_id,
+            "contact": storage.get_contact(contact_id),
         }
+
+        if _is_online_mode(body.connectionMode):
+            try:
+                zoho = sync_contact_to_zoho(contact_id)
+                response["zohoLeadId"] = zoho.get("zohoLeadId")
+                response["zohoSynced"] = True
+                response["alreadySynced"] = zoho.get("alreadySynced", False)
+                background_tasks.add_task(
+                    _post_zoho_outreach,
+                    contact_id,
+                    skip_whatsapp=body.skipWhatsApp,
+                    skip_email=body.skipEmail,
+                )
+            except ZohoError as exc:
+                response["zohoError"] = format_zoho_error_message(exc)
+            except Exception as exc:
+                logger.error("Zoho sync on save failed for %s: %s", contact_id, exc, exc_info=True)
+                response["zohoError"] = str(exc)
+
+        return response
     except ContactStorageError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except LocalDbError as exc:
@@ -478,23 +526,15 @@ async def seed_offline_sample():
     return seed_offline_sample_if_empty()
 
 @router.post("/contacts/sync-pending-to-zoho")
-async def sync_pending_contacts_to_zoho():
+async def sync_pending_contacts_to_zoho(background_tasks: BackgroundTasks):
     try:
         result = sync_all_pending_to_zoho()
         for item in result.get("results", []):
             contact_id = item.get("id")
             if not item.get("success") or not contact_id:
                 continue
-            contact = storage.get_contact(contact_id)
-            if not contact:
-                continue
-            whatsapp_result, email_result = await _schedule_outreach_for_contact(
-                contact,
-                on_zoho_sync=True,
-                contact_id=contact_id,
-            )
-            item.update(_whatsapp_response(whatsapp_result))
-            item.update(_email_response(email_result))
+            background_tasks.add_task(_post_zoho_outreach, str(contact_id))
+            item["outreach_queued"] = True
         return result
     except ZohoError as exc:
         raise HTTPException(
@@ -505,20 +545,23 @@ async def sync_pending_contacts_to_zoho():
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 @router.post("/contacts/{contact_id}/sync-to-zoho")
-async def sync_single_contact_to_zoho(contact_id: str):
+async def sync_single_contact_to_zoho(
+    contact_id: str,
+    background_tasks: BackgroundTasks,
+    body: SyncOutreachOptions | None = None,
+):
+    opts = body or SyncOutreachOptions()
     try:
         result = sync_contact_to_zoho(contact_id)
         if not result.get("success"):
             raise HTTPException(status_code=404, detail=result.get("error", "Contact not found"))
-        contact = storage.get_contact(contact_id)
-        if contact:
-            whatsapp_result, email_result = await _schedule_outreach_for_contact(
-                contact,
-                on_zoho_sync=True,
-                contact_id=contact_id,
-            )
-            result.update(_whatsapp_response(whatsapp_result))
-            result.update(_email_response(email_result))
+        background_tasks.add_task(
+            _post_zoho_outreach,
+            contact_id,
+            skip_whatsapp=opts.skipWhatsApp,
+            skip_email=opts.skipEmail,
+        )
+        result["outreach_queued"] = True
         return result
     except HTTPException:
         raise

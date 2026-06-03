@@ -23,9 +23,11 @@
     "build": "vite build",
     "build:local": "vite build --mode development",
     "build:dev": "vite build --mode development",
-    "preview": "npm run serve:dist",
+    "preview": "npm run serve:netlify",
     "serve:dist": "node scripts/serve-dist.mjs",
-    "build:serve": "npm run build && npm run serve:dist",
+    "serve:netlify": "node scripts/serve-netlify.mjs",
+    "build:serve": "npm run build && npm run serve:netlify",
+    "build:serve:dist": "npm run build && npm run serve:dist",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

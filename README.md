@@ -51,18 +51,23 @@ Open `http://localhost:8000` (or your host’s URL). Swagger: `http://localhost:
 
 > **Combined deploy** (API + frontend on one host, e.g. Render): set `PORT` and omit `VITE_API_URL` so the app uses the same origin. **Split deploy** (Netlify + Render): use `VITE_API_URL` → Render API URL (see Netlify section).
 
-### Test production build locally (`dist/`)
+### Test production build locally (Netlify-style)
 
-TanStack Start does **not** put `index.html` in `dist/client`. Use the SSR server (same idea as Netlify):
+TanStack Start does **not** put `index.html` in `dist/client`. Use the **same SSR handler Netlify deploys**:
 
 ```
 npm run build
-npm run serve:dist
+npm run serve:netlify
 ```
 
-Open **http://127.0.0.1:4173** (or `/scan`). One command: `npm run build:serve`.
+Open **http://127.0.0.1:8888** (default port). One command: `npm run build:serve`.
 
-> `npm run backend` is for Python API + static files; for **frontend-only** smoke test of `dist`, use `serve:dist`.
+| Script | What it runs |
+|--------|----------------|
+| `serve:netlify` | `dist/client` static + `.netlify/v1/functions/server.mjs` (matches Netlify) |
+| `serve:dist` | `dist/client` + `dist/server/server.js` (lighter, no Netlify wrapper) |
+
+> `npm run backend` is for Python API + static files; for **frontend-only** smoke test before deploy, use `serve:netlify`.
 
 ### Netlify (frontend only)
 

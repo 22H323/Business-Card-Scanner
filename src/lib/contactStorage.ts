@@ -146,7 +146,14 @@ export async function saveContact(
     skipWhatsApp?: boolean;
     skipEmail?: boolean;
   },
-): Promise<{ id: string; queued?: boolean; whatsappQueued?: boolean; emailQueued?: boolean }> {
+): Promise<{
+  id: string;
+  queued?: boolean;
+  zohoLeadId?: string;
+  zohoSynced?: boolean;
+  alreadySynced?: boolean;
+  zohoError?: string;
+}> {
   // Offline mode (or no network): browser queue only — sync to Zoho when back online.
   if (isIndexedDbStorage() && isOfflineSave(options)) {
     const queueId = crypto.randomUUID();
@@ -167,7 +174,14 @@ export async function saveContact(
 
   const up = await checkStorageHealth();
   if (up) {
-    return saveContactToLocalDb(payload, cardImageBase64, options);
+    const saved = await saveContactToLocalDb(payload, cardImageBase64, options);
+    return {
+      id: saved.id,
+      zohoLeadId: saved.zohoLeadId,
+      zohoSynced: saved.zohoSynced,
+      alreadySynced: saved.alreadySynced,
+      zohoError: saved.zohoError,
+    };
   }
 
   const queueId = crypto.randomUUID();
@@ -210,6 +224,7 @@ export async function markContactSyncedZoho(contactId: string, zohoLeadId: strin
 
 export async function syncContactToZohoStorage(
   contactId: string,
+  options?: { skipWhatsApp?: boolean; skipEmail?: boolean },
 ): Promise<{ zohoLeadId?: string; alreadySynced?: boolean }> {
   if (isIndexedDbStorage()) {
     const contact = await getStoredContactById(contactId);
@@ -232,7 +247,7 @@ export async function syncContactToZohoStorage(
     }
     return result;
   }
-  return syncLocalContactToZoho(contactId);
+  return syncLocalContactToZoho(contactId, options);
 }
 
 export async function syncAllPendingToZohoStorage(): Promise<{ synced: number; total: number }> {

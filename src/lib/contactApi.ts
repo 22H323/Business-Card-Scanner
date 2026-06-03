@@ -99,11 +99,19 @@ export async function syncPayloadToZoho(
   return normalizeZohoSyncResult(data);
 }
 
-export async function syncContactToZoho(contactId: string): Promise<ZohoSyncResult> {
+export async function syncContactToZoho(
+  contactId: string,
+  options?: { skipWhatsApp?: boolean; skipEmail?: boolean },
+): Promise<ZohoSyncResult> {
   let response: Response;
   try {
     response = await fetch(getSyncContactToZohoUrl(contactId), {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        skipWhatsApp: Boolean(options?.skipWhatsApp),
+        skipEmail: Boolean(options?.skipEmail),
+      }),
     });
   } catch {
     throw new Error(
