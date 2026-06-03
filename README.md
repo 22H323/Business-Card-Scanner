@@ -51,6 +51,33 @@ Open `http://localhost:8000` (or your host’s URL). Swagger: `http://localhost:
 
 > On cloud hosts (Railway, Render, etc.), set `PORT` in the platform env; omit `VITE_API_URL` so the app uses the same origin as the API.
 
+### Test production build locally (`dist/`)
+
+TanStack Start does **not** put `index.html` in `dist/client`. Use the SSR server (same idea as Netlify):
+
+```
+npm run build
+npm run serve:dist
+```
+
+Open **http://127.0.0.1:4173** (or `/scan`). One command: `npm run build:serve`.
+
+> `npm run backend` is for Python API + static files; for **frontend-only** smoke test of `dist`, use `serve:dist`.
+
+### Netlify (frontend only)
+
+This app uses **TanStack Start SSR**. Netlify needs the official plugin (already in `vite.config.ts`) and `netlify.toml` at the repo root.
+
+1. Push to GitHub and connect the repo in Netlify (or redeploy).
+2. Build settings (also in `netlify.toml`):
+   - **Build command:** `npm run build`
+   - **Publish directory:** `dist/client`
+3. In Netlify → **Site configuration → Environment variables**, set:
+   - `VITE_API_URL` = your public Python API URL (e.g. `https://your-api.example.com`) — required for scan/contacts from the live site.
+4. Redeploy. The site should load at `/` and routes like `/scan` (no “Page not found”).
+
+> Netlify hosts the **website** only. Run the Python API elsewhere (`npm run backend` on a VPS, Railway, Render, etc.) and point `VITE_API_URL` at it.
+
 ---
 
 ## 3. How to check Swagger (API test page)
