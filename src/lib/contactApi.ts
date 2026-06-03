@@ -63,6 +63,11 @@ export async function saveLeadToZoho(payload: LeadPayload): Promise<void> {
 
 export async function syncPayloadToZoho(
   payload: LeadPayload & { zohoLeadId?: string | null },
+  options?: {
+    connectionMode?: "online" | "offline";
+    skipWhatsApp?: boolean;
+    skipEmail?: boolean;
+  },
 ): Promise<ZohoSyncResult> {
   let response: Response;
   try {
@@ -76,10 +81,15 @@ export async function syncPayloadToZoho(
         company: payload.company,
         designation: payload.designation,
         phone: payload.phone,
+        secondaryPhone: payload.secondaryPhone,
         email: payload.email,
+        secondaryEmail: payload.secondaryEmail,
         website: payload.website,
         address: payload.address,
         zohoLeadId: payload.zohoLeadId,
+        connectionMode: options?.connectionMode ?? "online",
+        skipWhatsApp: Boolean(options?.skipWhatsApp),
+        skipEmail: Boolean(options?.skipEmail),
       }),
     });
   } catch {

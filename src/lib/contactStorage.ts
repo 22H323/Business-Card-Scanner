@@ -5,6 +5,7 @@ import {
   getContactStorageMode,
   isIndexedDbStorage,
   isServerStorage,
+  setResolvedStorageMode,
   storageLabel,
   type ContactStorageMode,
 } from "@/lib/storageConfig";
@@ -51,7 +52,25 @@ export {
 export { queueContactToPayload, localContactToPayload, syncQueueItemToLocalDb };
 
 /** True when the configured storage backend is reachable. IndexedDB is always available in-browser. */
+/** Load storage mode from Render so production matches CONTACT_STORAGE even if Vite env differs. */
+export async function resolveStorageMode(): Promise<ContactStorageMode> {
+  const viteMode = getContactStorageMode();
+  if (viteMode === "indexeddb") {
+    setResolvedStorageMode("indexeddb");
+    return "indexeddb";
+  }
+  try {
+    const cfg = await fetchStorageConfig();
+    setResolvedStorageMode(cfg.storage);
+    return cfg.storage;
+  } catch {
+    setResolvedStorageMode(viteMode);
+    return viteMode;
+  }
+}
+
 export async function checkStorageHealth(): Promise<boolean> {
+  await resolveStorageMode();
   if (isIndexedDbStorage()) {
     return true;
   }
@@ -59,6 +78,7 @@ export async function checkStorageHealth(): Promise<boolean> {
 }
 
 export async function listContacts(): Promise<StoredContact[]> {
+  await resolveStorageMode();
   if (isIndexedDbStorage()) {
     return listStoredContacts() as Promise<StoredContact[]>;
   }
@@ -96,7 +116,7 @@ export async function syncQueueItemToZoho(item: QueueItem): Promise<{ zohoLeadId
     throw new Error("No internet. Connect to sync to Zoho CRM.");
   }
   const payload = queueContactToPayload(item.contact_data);
-  const result = await syncPayloadToZoho(payload);
+  const result = await syncPayloadToZoho(payload, { connectionMode: "online" });
   const zohoLeadId = result.zohoLeadId;
   await saveStoredContact(
     {
@@ -154,6 +174,7 @@ export async function saveContact(
   alreadySynced?: boolean;
   zohoError?: string;
 }> {
+  await resolveStorageMode();
   // Offline mode (or no network): browser queue only — sync to Zoho when back online.
   if (isIndexedDbStorage() && isOfflineSave(options)) {
     const queueId = crypto.randomUUID();
@@ -238,10 +259,13 @@ export async function syncContactToZohoStorage(
       };
     }
     const payload = localContactToPayload(contact as StoredContact);
-    const result = await syncPayloadToZoho({
-      ...payload,
-      zohoLeadId: contact.zohoLeadId as string | null | undefined,
-    });
+    const result = await syncPayloadToZoho(
+      {
+        ...payload,
+        zohoLeadId: contact.zohoLeadId as string | null | undefined,
+      },
+      options,
+    );
     if (result.zohoLeadId) {
       await markContactSyncedZoho(contactId, result.zohoLeadId);
     }

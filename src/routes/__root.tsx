@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { getQueueItems, updateQueueItem, removeQueueItem } from "@/lib/indexeddb";
 import {
   checkStorageHealth,
+  resolveStorageMode,
   shouldUseIndexedDbQueueSync,
   shouldUseOfflineQueue,
   storageLabel,
@@ -119,6 +120,10 @@ function RootComponent() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    void resolveStorageMode().catch((err) => {
+      console.warn("[Storage] Could not resolve CONTACT_STORAGE from API:", err);
+    });
 
     // 1. Preload all routes to guarantee chunk availability when offline
     const routesToPreload = ["/scan", "/contacts", "/queue", "/settings"];

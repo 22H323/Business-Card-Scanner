@@ -140,4 +140,6 @@ After deploy, scanning should:
 | `tesseract_available: false` | Check build logs; ensure `Dockerfile` is at repo root |
 | CORS errors | Set `FRONTEND_URL` on Render; redeploy API |
 | Email/WhatsApp skipped | Add phone/email on Review, or fix OCR; set Gmail/WhatsApp env on Render |
+| Email never arrives (Zoho works) | Open Render `/health` — `email.configured` must be `true`. Set `GMAIL_USER` + `GMAIL_APP_PASSWORD`. Redeploy API after env change. Check Settings → Email notifications ON. |
+| Email goes to wrong address | If `EMAIL_TEST_RECIPIENT` is set on Render, all mail goes there (remove for production). |
 | Old API URL in browser | Netlify clear-cache redeploy; unregister `sw.js` |

@@ -31,7 +31,7 @@ class CreateLeadRequest(BaseModel):
 
 
 class SyncFromLocalRequest(BaseModel):
-    """Contact fields from local PostgreSQL (or queue) for Zoho sync."""
+    """Contact fields from IndexedDB / queue for Zoho sync + thank-you outreach."""
     fullName: Optional[str] = ""
     firstName: Optional[str] = ""
     lastName: Optional[str] = ""
@@ -40,17 +40,32 @@ class SyncFromLocalRequest(BaseModel):
     designation: Optional[str] = ""
     title: Optional[str] = ""
     phone: Optional[str] = ""
+    secondaryPhone: Optional[str] = ""
     email: Optional[str] = ""
+    secondaryEmail: Optional[str] = ""
     website: Optional[str] = ""
     address: Optional[str] = ""
     zohoLeadId: Optional[str] = None
+    connectionMode: str = "online"
+    skipWhatsApp: bool = False
+    skipEmail: bool = False
 
 
 @router.post("/sync-from-local")
 async def sync_from_local_route(body: SyncFromLocalRequest):
-    """Push a local DB / offline contact to Zoho CRM."""
+    """Push a browser-stored contact to Zoho CRM, then send thank-you email/WhatsApp."""
     try:
-        return sync_payload_to_zoho(body.model_dump(exclude_none=True))
+        payload = body.model_dump(exclude_none=True)
+        result = sync_payload_to_zoho(payload)
+        if result.get("success") and result.get("zohoLeadId"):
+            from api.routes import _payload_to_outreach_contact, fire_post_zoho_outreach
+
+            fire_post_zoho_outreach(
+                contact=_payload_to_outreach_contact(payload),
+                skip_whatsapp=body.skipWhatsApp,
+                skip_email=body.skipEmail,
+            )
+        return result
     except ZohoError as exc:
         raise HTTPException(
             status_code=exc.status_code, detail=format_zoho_error_message(exc)

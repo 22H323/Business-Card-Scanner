@@ -9,6 +9,7 @@
 [build.environment]
   NODE_VERSION = "22"
   VITE_API_URL = "https://business-card-scanner-2.onrender.com"
+  VITE_CONTACT_STORAGE = "indexeddb"
 
 [dev]
   command = "npm run dev"

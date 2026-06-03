@@ -14,12 +14,17 @@ import {
   deleteContact,
   isIndexedDbStorage,
   listContacts,
+  resolveStorageMode,
   shouldUseOfflineQueue,
   storageLabel,
   syncAllPendingToZohoStorage,
+  syncAllQueueItemsToZoho,
   syncContactToZohoStorage,
   syncQueueItemToLocalDb,
+  syncQueueItemToZoho,
 } from "@/lib/contactStorage";
+import { getConnectionMode } from "@/lib/connectionMode";
+import { buildZohoLeadLookup, isDuplicateOfZohoLead } from "@/lib/contactListMerge";
 import { getQueueItems, removeQueueItem, updateQueueItem, type QueueItem } from "@/lib/indexeddb";
 import type { ContactStatus } from "@/lib/contactStatus";
 
@@ -74,6 +79,10 @@ function ContactsPage() {
   const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [isSyncingZoho, setIsSyncingZoho] = useState(false);
   const [localDbOnline, setLocalDbOnline] = useState<boolean | null>(null);
+  const [browserStorage, setBrowserStorage] = useState(isIndexedDbStorage());
+
+  const isAppOnline = () =>
+    getConnectionMode() === "online" && typeof navigator !== "undefined" && navigator.onLine;
 
   const fetchContactsList = async ({ silent = false }: { silent?: boolean } = {}) => {
     try {
@@ -94,8 +103,12 @@ function ContactsPage() {
       let fetchFailed = false;
 
       let localDbData: any[] = [];
+      const storageMode = await resolveStorageMode();
+      const useBrowserStorage = storageMode === "indexeddb";
+      setBrowserStorage(useBrowserStorage);
       const storageUp = await checkStorageHealth();
       setLocalDbOnline(storageUp);
+      const onlineView = isAppOnline();
       if (storageUp) {
         try {
           localDbData = await listContacts();
@@ -118,9 +131,7 @@ function ContactsPage() {
         fetchFailed = true;
       }
 
-      const zohoLeadIds = new Set(
-        zohoData.map((lead: any) => String(lead.id || "")).filter(Boolean),
-      );
+      const zohoLookup = buildZohoLeadLookup(zohoData);
 
       const formattedZoho: Contact[] = zohoData.map((c: any, i: number) => {
         const initials = c.name
@@ -142,9 +153,9 @@ function ContactsPage() {
         };
       });
 
-      // Fetch pending/failed items from IndexedDB (server storage modes only)
+      // Offline queue: PostgreSQL path, or browser storage on Render (indexeddb)
       let formattedQueue: Contact[] = [];
-      if (shouldUseOfflineQueue()) {
+      if (shouldUseOfflineQueue() || useBrowserStorage) {
         try {
           const queueItems = await getQueueItems();
           formattedQueue = queueItems.map((item) => {
@@ -167,7 +178,12 @@ function ContactsPage() {
               whatsapp: !!c.phone,
               email: !!c.email,
             },
-            lastSync: item.status === "failed" ? "Sync failed" : "Pending upload",
+            lastSync:
+              item.status === "failed"
+                ? "Sync failed"
+                : useBrowserStorage
+                  ? "Queued · sync to Zoho"
+                  : "Pending upload",
             accent: "from-amber-500 to-orange-500",
           };
         });
@@ -176,11 +192,12 @@ function ContactsPage() {
         }
       }
 
-      const storageSource = isIndexedDbStorage() ? ("indexeddb" as const) : ("localdb" as const);
+      const storageSource = useBrowserStorage ? ("indexeddb" as const) : ("localdb" as const);
       const formattedLocalDb: Contact[] = localDbData
         .filter((c: any) => {
-          const linkedZohoId = String(c.zohoLeadId || "");
-          return !(linkedZohoId && zohoLeadIds.has(linkedZohoId));
+          return !isDuplicateOfZohoLead(c, zohoLookup, {
+            hideSyncedWhenOnline: onlineView,
+          });
         })
         .map((c: any, i: number) => {
         const initials = c.name
@@ -199,7 +216,7 @@ function ContactsPage() {
           zohoLeadId: c.zohoLeadId || null,
           title: c.title || c.designation || "",
           initials,
-          accent: isIndexedDbStorage()
+          accent: useBrowserStorage
             ? "from-violet-600 to-indigo-700"
             : "from-slate-600 to-slate-800",
           status,
@@ -207,9 +224,11 @@ function ContactsPage() {
           lastSync:
             c.syncStatus === "synced_zoho"
               ? "Synced to Zoho"
-              : c.syncStatus === "local_only"
-                ? `${storageLabel()} · pending Zoho`
-                : c.lastSync || storageLabel(),
+              : status === "pending"
+                ? onlineView
+                  ? "Awaiting Zoho sync"
+                  : `${storageLabel(storageMode)} · pending Zoho`
+                : c.lastSync || storageLabel(storageMode, { online: onlineView }),
         };
       });
 
@@ -246,9 +265,14 @@ function ContactsPage() {
         return;
       }
 
-      await syncQueueItemToLocalDb(item);
-      await removeQueueItem(item.id);
-      toast.success(`Saved to ${storageLabel()}: ${item.contact_data.name || "contact"}`);
+      if (browserStorage || isIndexedDbStorage()) {
+        await syncQueueItemToZoho(item);
+        toast.success(`Synced to Zoho CRM: ${item.contact_data.name || "contact"}`);
+      } else {
+        await syncQueueItemToLocalDb(item);
+        await removeQueueItem(item.id);
+        toast.success(`Saved to ${storageLabel()}: ${item.contact_data.name || "contact"}`);
+      }
       await fetchContactsList({ silent: true });
       window.dispatchEvent(new CustomEvent("cs-contacts-updated"));
       window.dispatchEvent(new CustomEvent("cs-queue-updated"));
@@ -259,7 +283,7 @@ function ContactsPage() {
     }
   };
 
-  const handleSyncAllQueueToLocalDb = async () => {
+  const handleSyncAllQueue = async () => {
     const storageUp = await checkStorageHealth();
     if (!storageUp) {
       toast.error(`Cannot reach ${storageLabel()}. Run npm run server and check .env`);
@@ -268,36 +292,49 @@ function ContactsPage() {
 
     const queuePending = contactsList.filter((c) => c.source === "queue");
     if (queuePending.length === 0) {
-      toast.info("No queued contacts waiting for local DB sync.");
+      toast.info(
+        browserStorage
+          ? "No queued contacts waiting for Zoho sync."
+          : "No queued contacts waiting for local DB sync.",
+      );
       return;
     }
 
     setIsSyncingAll(true);
     try {
-      const items = await getQueueItems();
-      const pendingItems = items.filter((i) => i.status !== "synced");
-      let synced = 0;
-
-      for (const item of pendingItems) {
-        try {
-          await syncQueueItemToLocalDb(item);
-          await removeQueueItem(item.id);
-          synced += 1;
-        } catch (err) {
-          console.error(`Local DB sync failed for ${item.id}:`, err);
+      if (browserStorage || isIndexedDbStorage()) {
+        const result = await syncAllQueueItemsToZoho();
+        if (result.synced > 0) {
+          toast.success(`Synced ${result.synced} of ${result.total} contact(s) to Zoho CRM.`);
+        } else {
+          toast.error("Could not sync any queued contacts to Zoho.");
         }
-      }
-
-      if (synced > 0) {
-        toast.success(`Synced ${synced} contact(s) to ${storageLabel()}.`);
       } else {
-        toast.error(`Could not sync any contacts to ${storageLabel()}.`);
+        const items = await getQueueItems();
+        const pendingItems = items.filter((i) => i.status !== "synced");
+        let synced = 0;
+
+        for (const item of pendingItems) {
+          try {
+            await syncQueueItemToLocalDb(item);
+            await removeQueueItem(item.id);
+            synced += 1;
+          } catch (err) {
+            console.error(`Local DB sync failed for ${item.id}:`, err);
+          }
+        }
+
+        if (synced > 0) {
+          toast.success(`Synced ${synced} contact(s) to ${storageLabel()}.`);
+        } else {
+          toast.error(`Could not sync any contacts to ${storageLabel()}.`);
+        }
       }
       await fetchContactsList({ silent: true });
       window.dispatchEvent(new CustomEvent("cs-contacts-updated"));
       window.dispatchEvent(new CustomEvent("cs-queue-updated"));
     } catch (err: any) {
-      toast.error(err.message || `Failed to sync queue to ${storageLabel()}.`);
+      toast.error(err.message || `Failed to sync queue.`);
     } finally {
       setIsSyncingAll(false);
     }
@@ -486,11 +523,15 @@ function ContactsPage() {
     [contactsList],
   );
 
-  const sourceLabel = (source: Contact["source"]) => {
+  const sourceLabel = (source: Contact["source"], status?: ContactStatus) => {
     if (source === "zoho") return "Zoho CRM";
-    if (source === "indexeddb") return "IndexedDB";
-    if (source === "localdb") return storageLabel();
-    return "Local queue";
+    if (source === "queue") return isAppOnline() ? "Offline queue" : "Queued";
+    if (source === "indexeddb") {
+      if (isAppOnline() && status === "pending") return "Pending · Zoho";
+      return storageLabel("indexeddb", { online: isAppOnline() });
+    }
+    if (source === "localdb") return storageLabel("postgresql", { online: isAppOnline() });
+    return "Local";
   };
 
   const counts = useMemo(() => {
@@ -626,7 +667,7 @@ function ContactsPage() {
                           </div>
                           <div>
                             <div className="font-medium">{c.name}</div>
-                            <div className="text-[11px] text-muted-foreground">{c.company} · {sourceLabel(c.source)}</div>
+                            <div className="text-[11px] text-muted-foreground">{c.company} · {sourceLabel(c.source, c.status)}</div>
                           </div>
                         </div>
                       </td>
@@ -662,7 +703,7 @@ function ContactsPage() {
                               ) : (
                                 <>
                                   <Send className="mr-1.5 h-3 w-3" />
-                                  Local DB
+                                  {browserStorage ? "Sync to Zoho" : "Local DB"}
                                 </>
                               )}
                             </Button>
@@ -721,7 +762,7 @@ function ContactsPage() {
                         {c.title || "—"} · {c.company || "No company"}
                       </div>
                       <div className="mt-0.5 text-[11px] text-muted-foreground">
-                        {sourceLabel(c.source)} · {c.lastSync}
+                        {sourceLabel(c.source, c.status)} · {c.lastSync}
                       </div>
                     </div>
                   </div>
@@ -763,7 +804,7 @@ function ContactsPage() {
                         {syncingId === c.id ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
-                          "Sync to Local DB"
+                          browserStorage ? "Sync to Zoho" : "Sync to Local DB"
                         )}
                       </Button>
                     )}
@@ -837,11 +878,15 @@ function ContactsPage() {
             )}
           </button>
         )}
-        {shouldUseOfflineQueue() && pendingQueueCount > 0 ? (
+        {(shouldUseOfflineQueue() || browserStorage) && pendingQueueCount > 0 ? (
           <button
-            onClick={handleSyncAllQueueToLocalDb}
+            onClick={handleSyncAllQueue}
             disabled={isSyncingAll || isLoading}
-            title={`Sync queued contacts to ${storageLabel()}`}
+            title={
+              browserStorage
+                ? "Sync queued contacts to Zoho CRM"
+                : `Sync queued contacts to ${storageLabel()}`
+            }
             className="flex h-12 min-w-12 items-center justify-center gap-2 rounded-2xl bg-gradient-primary px-3 text-primary-foreground shadow-glow transition active:scale-95 disabled:opacity-50 sm:h-14 sm:px-4"
           >
             {isSyncingAll ? (
@@ -849,7 +894,9 @@ function ContactsPage() {
             ) : (
               <>
                 <Send className="h-5 w-5" />
-                <span className="text-sm font-medium">Sync to Local DB</span>
+                <span className="text-sm font-medium">
+                  {browserStorage ? "Sync queue to Zoho" : "Sync to Local DB"}
+                </span>
               </>
             )}
           </button>

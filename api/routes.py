@@ -3,7 +3,7 @@ import logging
 import asyncio
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from services.contact_service import (
@@ -111,6 +111,28 @@ async def _schedule_outreach_for_contact(
     return whatsapp_result, email_result
 
 
+def _payload_to_outreach_contact(data: dict[str, Any]) -> dict[str, Any]:
+    email = str(data.get("email") or data.get("emailAddress") or "").strip()
+    phone = str(data.get("phone") or data.get("phoneNumber") or "").strip()
+    full_name = str(
+        data.get("fullName") or data.get("name") or f"{data.get('firstName', '')} {data.get('lastName', '')}".strip()
+    ).strip()
+    return {
+        "fullName": full_name,
+        "name": full_name,
+        "firstName": data.get("firstName", ""),
+        "lastName": data.get("lastName", ""),
+        "designation": data.get("designation") or data.get("title", ""),
+        "company": data.get("company", ""),
+        "companyName": data.get("company", ""),
+        "email": email,
+        "emailAddress": email,
+        "emails": [e for e in (email, str(data.get("secondaryEmail") or "").strip()) if e],
+        "phone": phone,
+        "phones": [p for p in (phone, str(data.get("secondaryPhone") or "").strip()) if p],
+    }
+
+
 async def _post_zoho_outreach(
     contact_id: str,
     *,
@@ -131,6 +153,51 @@ async def _post_zoho_outreach(
         )
     except Exception as exc:
         logger.error("Background outreach failed for %s: %s", contact_id, exc, exc_info=True)
+
+
+async def _post_outreach_for_contact_data(
+    contact: dict[str, Any],
+    *,
+    skip_whatsapp: bool = False,
+    skip_email: bool = False,
+) -> None:
+    """Outreach when contact lives in IndexedDB (no server contact row)."""
+    try:
+        await _schedule_outreach_for_contact(
+            contact,
+            on_zoho_sync=True,
+            contact_id=None,
+            skip_whatsapp=skip_whatsapp,
+            skip_email=skip_email,
+        )
+    except Exception as exc:
+        logger.error("Background outreach failed: %s", exc, exc_info=True)
+
+
+def fire_post_zoho_outreach(
+    *,
+    contact_id: str | None = None,
+    contact: dict[str, Any] | None = None,
+    skip_whatsapp: bool = False,
+    skip_email: bool = False,
+) -> None:
+    """Schedule thank-you outreach without blocking the HTTP response."""
+    if contact_id:
+        asyncio.create_task(
+            _post_zoho_outreach(
+                contact_id,
+                skip_whatsapp=skip_whatsapp,
+                skip_email=skip_email,
+            )
+        )
+    elif contact:
+        asyncio.create_task(
+            _post_outreach_for_contact_data(
+                contact,
+                skip_whatsapp=skip_whatsapp,
+                skip_email=skip_email,
+            )
+        )
 
 
 @router.post("/scan-card", tags=["OCR"], summary="Scan a business card image")
@@ -413,7 +480,7 @@ async def get_contact_api(contact_id: str):
 
 
 @router.post("/api/contacts", tags=["Contacts"], summary="Save contact")
-async def create_contact_json(body: LocalContactBody, background_tasks: BackgroundTasks):
+async def create_contact_json(body: LocalContactBody):
     try:
         payload = body.model_dump()
         result = storage.create_contact(payload)
@@ -430,9 +497,8 @@ async def create_contact_json(body: LocalContactBody, background_tasks: Backgrou
                 response["zohoLeadId"] = zoho.get("zohoLeadId")
                 response["zohoSynced"] = True
                 response["alreadySynced"] = zoho.get("alreadySynced", False)
-                background_tasks.add_task(
-                    _post_zoho_outreach,
-                    contact_id,
+                fire_post_zoho_outreach(
+                    contact_id=contact_id,
                     skip_whatsapp=body.skipWhatsApp,
                     skip_email=body.skipEmail,
                 )
@@ -526,14 +592,14 @@ async def seed_offline_sample():
     return seed_offline_sample_if_empty()
 
 @router.post("/contacts/sync-pending-to-zoho")
-async def sync_pending_contacts_to_zoho(background_tasks: BackgroundTasks):
+async def sync_pending_contacts_to_zoho():
     try:
         result = sync_all_pending_to_zoho()
         for item in result.get("results", []):
             contact_id = item.get("id")
             if not item.get("success") or not contact_id:
                 continue
-            background_tasks.add_task(_post_zoho_outreach, str(contact_id))
+            fire_post_zoho_outreach(contact_id=str(contact_id))
             item["outreach_queued"] = True
         return result
     except ZohoError as exc:
@@ -547,7 +613,6 @@ async def sync_pending_contacts_to_zoho(background_tasks: BackgroundTasks):
 @router.post("/contacts/{contact_id}/sync-to-zoho")
 async def sync_single_contact_to_zoho(
     contact_id: str,
-    background_tasks: BackgroundTasks,
     body: SyncOutreachOptions | None = None,
 ):
     opts = body or SyncOutreachOptions()
@@ -555,9 +620,8 @@ async def sync_single_contact_to_zoho(
         result = sync_contact_to_zoho(contact_id)
         if not result.get("success"):
             raise HTTPException(status_code=404, detail=result.get("error", "Contact not found"))
-        background_tasks.add_task(
-            _post_zoho_outreach,
-            contact_id,
+        fire_post_zoho_outreach(
+            contact_id=contact_id,
             skip_whatsapp=opts.skipWhatsApp,
             skip_email=opts.skipEmail,
         )
