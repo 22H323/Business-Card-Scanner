@@ -23,6 +23,29 @@ export type ScanExtractionResult = {
   emailExtracted?: string | null;
 };
 
+function isEmptyServerOcr(result: Awaited<ReturnType<typeof scanCardImage>>): boolean {
+  const text = (result.raw_text || "").trim();
+  const name = (result.contact?.name || result.contact?.fullName || "").trim();
+  const warning = (result.ocr_warning || "").toLowerCase();
+  if (!text) return true;
+  if (warning.includes("tesseract") || warning.includes("no text")) return true;
+  return name.length < 2;
+}
+
+async function runBrowserOcrFallback(
+  file: File,
+  onProgress?: (update: ScanProgress) => void,
+): Promise<ScanExtractionResult> {
+  onProgress?.({ progress: 55, message: "Running browser OCR…" });
+  const fallback = await runBrowserOcr(file);
+  onProgress?.({ progress: 100, message: "Extraction complete" });
+  return {
+    contact: fallback.contact,
+    rawText: fallback.rawText,
+    ocrWarning: fallback.ocrWarning,
+  };
+}
+
 /** Run OCR on the image file as-is (no crop). Returns parsed contact + raw API payload. */
 export async function extractContactFromImage(
   file: File,
@@ -36,9 +59,19 @@ export async function extractContactFromImage(
       message:
         typeof navigator !== "undefined" && !navigator.onLine
           ? "Running local OCR (no internet needed)…"
-          : "Running OCR…",
+          : "Running OCR on server…",
     });
     const result = await scanCardImage(file);
+
+    if (isEmptyServerOcr(result)) {
+      console.warn("Server OCR empty — trying browser OCR (Render may lack Tesseract).");
+      try {
+        return await runBrowserOcrFallback(file, onProgress);
+      } catch (browserErr) {
+        console.error("Browser OCR after empty server response failed:", browserErr);
+      }
+    }
+
     onProgress?.({ progress: 100, message: "Extraction complete" });
 
     if (result.contact) {

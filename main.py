@@ -130,11 +130,25 @@ def health_check():
     from services.contact_storage import storage_label
     from services.contact_storage import check_storage as check_contact_storage
 
+    tesseract_available = False
+    tesseract_error = None
+    try:
+        import pytesseract
+
+        pytesseract.get_tesseract_version()
+        tesseract_available = True
+    except Exception as exc:
+        tesseract_error = str(exc)
+
     payload = {
         "ok": True,
         "service": "cardsync-backend",
         "storage": storage_label(),
         "database": check_contact_storage(),
+        "ocr": {
+            "tesseract_available": tesseract_available,
+            "error": tesseract_error,
+        },
         "zoho": {"connected": zoho_connected},
     }
     if zoho_error:

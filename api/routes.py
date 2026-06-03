@@ -113,10 +113,18 @@ async def scan_card(
         structured_data = parse_business_card(raw_text)
         ocr_warning = None
         if not raw_text.strip():
-            ocr_warning = (
-                "OCR returned no text. Install Tesseract OCR on this machine, "
-                "or enter contact details manually below."
-            )
+            import shutil
+
+            if shutil.which("tesseract") is None:
+                ocr_warning = (
+                    "Server OCR is unavailable (Tesseract not installed on this host). "
+                    "The website will try browser OCR automatically, or enter details manually."
+                )
+            else:
+                ocr_warning = (
+                    "OCR returned no text from this image. Try a clearer photo, "
+                    "or enter contact details manually below."
+                )
 
         whatsapp_result, email_result = await _schedule_outreach_for_contact(
             structured_data,

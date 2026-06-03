@@ -588,7 +588,7 @@ export const LeadReviewPage = () => {
                     <p className="font-medium">OCR could not read this card</p>
                     <p className="mt-1 text-amber-800/90 dark:text-amber-100/90">{ocrWarning}</p>
                     <p className="mt-2 text-xs opacity-90">
-                      If OCR fails, start the local backend or continue editing manually. Offline browser OCR may also run automatically if supported.
+                      On Netlify, browser OCR runs automatically when the server cannot read the card. You can also edit all fields manually below.
                     </p>
                   </>
                 ) : (

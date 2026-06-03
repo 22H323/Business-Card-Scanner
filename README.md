@@ -83,6 +83,16 @@ This app uses **TanStack Start SSR**. Netlify needs the official plugin (already
 | API health | https://business-card-scanner-2.onrender.com/health |
 | API docs | https://business-card-scanner-2.onrender.com/docs |
 
+### Render: enable server OCR (Tesseract)
+
+The default Render Python runtime **does not include Tesseract**, so `/scan-card` returns empty text until you deploy with Docker:
+
+1. In Render → your web service → **Settings** → set **Runtime** to **Docker**.
+2. **Dockerfile path:** `./Dockerfile` (installs `tesseract-ocr` + `tesseract-ocr-eng`).
+3. Redeploy. Check `/health` — you should see `"tesseract_available": true` under `ocr`.
+
+Until then, the **Netlify app uses browser OCR** automatically when the server returns no text (after you redeploy the frontend).
+
 ### Postman (production API testing)
 
 Import both files from the `postman/` folder:

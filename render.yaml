@@ -1,0 +1,16 @@
+# Render Blueprint — use Docker so Tesseract OCR is available on the server.
+# Dashboard: New > Blueprint or link repo and apply this file.
+services:
+  - type: web
+    name: business-card-scanner-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: FRONTEND_URL
+        value: https://businesscardscannertesting.netlify.app
+      - key: ALLOWED_ORIGINS
+        value: https://businesscardscannertesting.netlify.app

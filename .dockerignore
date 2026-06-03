@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.env
+.env.*
+backend/.env
+uploads
+debug_output
+__pycache__
+.venv
+venv
+*.md
+postman
+.cursor
+.netlify
